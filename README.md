@@ -1,0 +1,101 @@
+# ONYX
+
+Application TV style Netflix, branchée sur **Stremio** : mêmes addons, mêmes catalogues, mêmes sources.
+Contrôlable à la télécommande de la TV **ou** depuis ton téléphone (app *Onyx Remote*).
+
+| Composant | Fichier | Rôle |
+|---|---|---|
+| App TV | `onyx-tv.apk` | Android TV / Google TV (TV Onyx) |
+| App téléphone | `onyx-remote.apk` | Télécommande + lancer un film depuis le téléphone |
+| Windows | `Onyx-Setup.exe` / `Onyx-Portable.exe` | Tester l'app TV sur PC |
+
+Les fichiers sont générés automatiquement à chaque modification et publiés dans
+**Releases** (onglet à droite de la page GitHub du projet).
+
+---
+
+## 1. Installer sur la TV (une seule fois)
+
+L'app n'a pas besoin d'être publiée sur le Play Store : on l'installe directement (« sideload »).
+Une fois installée, elle reste sur la TV et se met à jour toute seule.
+
+**Méthode clé USB (la plus simple)**
+1. Télécharge `onyx-tv.apk` depuis la page *Releases* sur ton PC.
+2. Copie-le sur une clé USB et branche-la sur la TV.
+3. Sur la TV : *Paramètres › Sécurité / Applis › Sources inconnues* → autorise le **gestionnaire de fichiers**.
+4. Ouvre la clé USB dans le gestionnaire de fichiers de la TV et lance `onyx-tv.apk` → **Installer**.
+
+**Méthode sans clé** : installe l'app *Send Files to TV* (Play Store) sur la TV et le téléphone, puis
+envoie `onyx-tv.apk` du téléphone vers la TV.
+
+Onyx apparaît ensuite dans la liste des applications de la TV (bannière **ONYX**).
+
+## 2. Connecter le téléphone
+
+1. Installe `onyx-remote.apk` sur ton téléphone Android (autorise l'installation depuis le navigateur / fichiers).
+2. Sur la TV : menu de gauche › **Connexions** → un QR code s'affiche.
+3. Dans *Onyx Remote* : **Scanner le QR code de la TV**.
+
+Le téléphone et la TV doivent être sur le **même Wi-Fi**. Depuis le téléphone tu peux :
+- utiliser le pavé directionnel / OK / Retour / Lecture-Pause, avancer/reculer ;
+- **chercher un film et le lancer directement sur la TV** sans toucher la télécommande ;
+- taper du texte sur la TV, ajouter des addons, connecter ton compte Stremio.
+
+> Astuce : scanner le QR code avec l'appareil photo d'un téléphone (même un iPhone) ouvre aussi la télécommande dans le navigateur.
+
+## 3. Stremio et les addons
+
+- **Paramètres › Se connecter à Stremio** (ou onglet *Addons* de l'app téléphone, plus pratique pour taper) :
+  tous les addons de ton compte Stremio sont récupérés automatiquement, ainsi que ta bibliothèque.
+- **Addons › Ajouter par URL** : colle l'URL `…/manifest.json` d'un addon, exactement comme dans Stremio.
+- **Addons › Catalogue d'addons / Communauté** : le catalogue officiel de Stremio.
+
+Lecture :
+- les sources en lien direct (HTTP) se lancent dans le **lecteur Onyx** (ExoPlayer : MKV, HEVC, HDR, sous-titres) ;
+- les sources torrent ont besoin du **serveur de streaming Stremio** (`Paramètres › Serveur de streaming`,
+  par défaut `http://127.0.0.1:11470`, c'est-à-dire l'app Stremio ouverte sur le même appareil) ;
+- `Paramètres › Lecteur vidéo › Lecteur externe` permet d'utiliser VLC / MX Player.
+
+Onyx n'héberge aucun contenu : tout vient des addons que tu choisis d'installer.
+
+## 4. Mises à jour automatiques
+
+Au démarrage, l'app TV, l'app téléphone et la version Windows vérifient la dernière *Release* GitHub,
+téléchargent la nouvelle version et lancent l'installation (sur Android, il faut seulement confirmer
+« Installer » la première fois et autoriser Onyx à installer des applis).
+
+Deux réglages à faire une seule fois sur GitHub :
+
+1. **Clé de signature** : ajoute les secrets `ONYX_KEYSTORE_BASE64` et `ONYX_KEYSTORE_PASSWORD`
+   (*Settings › Secrets and variables › Actions › New repository secret*). Ils garantissent que chaque
+   nouvelle version est signée avec la même clé, condition pour qu'Android accepte la mise à jour.
+2. **Visibilité** : ⚠️ le dépôt est **privé**, or la TV ne peut pas lire les *Releases* d'un dépôt privé.
+Pour activer les mises à jour automatiques, rends le dépôt public
+(*Settings › General › Danger Zone › Change visibility*). Sinon, mets à jour en réinstallant l'APK
+par-dessus (tes réglages et addons sont conservés).
+
+## 5. Version Windows (tester sur PC)
+
+Télécharge `Onyx-Setup.exe` (ou `Onyx-Portable.exe`) depuis *Releases*.
+Clavier : flèches = télécommande, Entrée = OK, Échap / Retour arrière = retour, F11 = plein écran.
+La souris marche aussi. Le téléphone peut contrôler le PC avec le QR code de *Connexions*.
+
+---
+
+## Pour les développeurs
+
+```
+web/        interface TV (HTML/CSS/JS sans compilation) + interface téléphone (web/remote)
+android/    projet Gradle : tv (WebView + ExoPlayer + serveur local), remote (scanner QR), core (mises à jour)
+desktop/    Electron (Windows) + serveur local (même API que la TV)
+```
+
+- Tester l'interface : ouvrir `web/index.html` dans Chrome (taille 1280×720 ou plus).
+- PC : `cd desktop && npm install && npm start`
+- APK : `cd android && ./gradlew assembleRelease` (SDK Android requis)
+- API de la TV (port 8765) : `GET /api/ping`, `GET /api/state`, `POST /api/cmd` (en-tête `X-Onyx-Token`).
+- Signature des APK : la clé n'est **pas** dans le dépôt. La CI la lit dans deux secrets GitHub
+  (*Settings › Secrets and variables › Actions*) : `ONYX_KEYSTORE_BASE64` (fichier .jks encodé en base64)
+  et `ONYX_KEYSTORE_PASSWORD`. Toujours garder la même clé : sinon Android refuse d'installer une
+  mise à jour par-dessus l'ancienne version. Sans ces secrets, les APK sont signés avec une clé temporaire.
+  En local : variables d'environnement `ONYX_KEYSTORE_FILE` et `ONYX_KEYSTORE_PASSWORD`.

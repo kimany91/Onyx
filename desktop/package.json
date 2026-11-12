@@ -1,0 +1,34 @@
+{
+  "name": "onyx",
+  "productName": "Onyx",
+  "version": "1.0.0",
+  "description": "Onyx — client Stremio style Netflix (version Windows)",
+  "main": "main.js",
+  "author": "Onyx",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "node prepare.js && electron .",
+    "dist": "node prepare.js && electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "electron-updater": "6.3.9"
+  },
+  "devDependencies": {
+    "electron": "33.2.1",
+    "electron-builder": "25.1.8"
+  },
+  "build": {
+    "appId": "app.onyx.tv",
+    "productName": "Onyx",
+    "files": ["main.js", "preload.js", "server.js", "package.json", "web/**/*", "build/icon.png"],
+    "directories": { "output": "dist", "buildResources": "build" },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }, { "target": "portable", "arch": ["x64"] }],
+      "icon": "build/icon.png"
+    },
+    "nsis": { "oneClick": true, "perMachine": false, "artifactName": "Onyx-Setup.${ext}", "shortcutName": "Onyx" },
+    "portable": { "artifactName": "Onyx-Portable.${ext}" },
+    "publish": [{ "provider": "generic", "url": "https://github.com/kimany91/Onyx/releases/latest/download" }]
+  }
+}

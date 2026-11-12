@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="color-scheme" content="dark">
+  <title>Onyx</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <!-- Écran de démarrage : pierre d'onyx + ON/YX -->
+  <div id="splash">
+    <div class="splash-glow"></div>
+    <div class="splash-gem">
+      <svg viewBox="0 0 120 120" class="gem" aria-hidden="true">
+        <defs>
+          <linearGradient id="gCrown" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#5a5d6b"/><stop offset=".55" stop-color="#1d1e25"/><stop offset="1" stop-color="#0b0b0e"/>
+          </linearGradient>
+          <linearGradient id="gPav" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="#22232b"/><stop offset="1" stop-color="#050506"/>
+          </linearGradient>
+          <linearGradient id="gSheen" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0" stop-color="#fff" stop-opacity="0"/><stop offset=".5" stop-color="#fff" stop-opacity=".55"/><stop offset="1" stop-color="#fff" stop-opacity="0"/>
+          </linearGradient>
+          <clipPath id="gClip"><polygon points="32,28 88,28 110,50 60,108 10,50"/></clipPath>
+        </defs>
+        <g class="facets" stroke="rgba(255,255,255,.22)" stroke-width=".6" stroke-linejoin="round">
+          <polygon points="32,28 10,50 35,50" fill="#2b2c35"/>
+          <polygon points="32,28 60,28 35,50" fill="#4a4c58"/>
+          <polygon points="60,28 35,50 85,50" fill="url(#gCrown)"/>
+          <polygon points="60,28 88,28 85,50" fill="#30313b"/>
+          <polygon points="88,28 85,50 110,50" fill="#191a20"/>
+          <polygon points="10,50 35,50 60,108" fill="#1e1f26"/>
+          <polygon points="35,50 60,50 60,108" fill="#2a2b33"/>
+          <polygon points="60,50 85,50 60,108" fill="url(#gPav)"/>
+          <polygon points="85,50 110,50 60,108" fill="#0c0c0f"/>
+        </g>
+        <g clip-path="url(#gClip)"><rect class="sheen" x="-60" y="0" width="40" height="120" fill="url(#gSheen)" transform="skewX(-20)"/></g>
+        <g class="glint"><path d="M42 34 l1.6 4.4 4.4 1.6 -4.4 1.6 -1.6 4.4 -1.6 -4.4 -4.4 -1.6 4.4 -1.6z" fill="#fff"/></g>
+      </svg>
+    </div>
+    <div class="splash-word"><span class="on">O</span><span class="on">N</span><span class="yx">Y</span><span class="yx">X</span></div>
+  </div>
+
+  <div id="backdrop"><div class="bd-layer"></div><div class="bd-layer"></div><div class="bd-shade"></div></div>
+
+  <nav id="sidebar"></nav>
+  <main id="view"></main>
+  <div id="modals"></div>
+  <div id="toasts"></div>
+
+  <script src="vendor/qrcode.js"></script>
+  <script src="js/util.js"></script>
+  <script src="js/stremio.js"></script>
+  <script src="js/native.js"></script>
+  <script src="js/focus.js"></script>
+  <script src="js/components.js"></script>
+  <script src="js/keyboard.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/views/home.js"></script>
+  <script src="js/views/catalog.js"></script>
+  <script src="js/views/search.js"></script>
+  <script src="js/views/detail.js"></script>
+  <script src="js/views/library.js"></script>
+  <script src="js/views/addons.js"></script>
+  <script src="js/views/connections.js"></script>
+  <script src="js/views/settings.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

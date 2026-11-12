@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="theme-color" content="#050506">
+  <meta name="color-scheme" content="dark">
+  <title>Onyx Remote</title>
+  <link rel="stylesheet" href="remote.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><span class="gem" id="gem"></span><span class="wordmark"><b>ON</b><i>YX</i></span></div>
+    <div class="tv" id="tv"><span class="dot"></span><span id="tvName">Connexion…</span></div>
+  </header>
+
+  <main>
+    <!-- Télécommande -->
+    <section class="tab active" id="tab-remote">
+      <div class="pad">
+        <button class="pad-btn up" data-key="up" aria-label="Haut"></button>
+        <button class="pad-btn right" data-key="right" aria-label="Droite"></button>
+        <button class="pad-btn down" data-key="down" aria-label="Bas"></button>
+        <button class="pad-btn left" data-key="left" aria-label="Gauche"></button>
+        <button class="pad-ok" data-key="ok">OK</button>
+      </div>
+      <div class="keys">
+        <button class="key" data-key="back"><svg viewBox="0 0 24 24"><path d="M20 11H7.8l5.6-5.6L12 4l-8 8 8 8 1.4-1.4L7.8 13H20z"/></svg><span>Retour</span></button>
+        <button class="key" data-key="home"><svg viewBox="0 0 24 24"><path d="M12 3 2 11.5h3V21h5.5v-6h3v6H19v-9.5h3z"/></svg><span>Accueil</span></button>
+        <button class="key" data-cmd="playpause"><svg viewBox="0 0 24 24"><path d="M3 5v14l9-7zm10 0h3v14h-3zm5 0h3v14h-3z"/></svg><span>Lecture</span></button>
+      </div>
+      <div class="seek-row">
+        <button class="chip" data-seek="-30">−30 s</button>
+        <button class="chip" data-seek="-10">−10 s</button>
+        <button class="chip" data-seek="10">+10 s</button>
+        <button class="chip" data-seek="30">+30 s</button>
+      </div>
+      <form class="text-send" id="textForm">
+        <input id="textInput" type="text" placeholder="Écrire sur la TV (recherche, champ…)" autocomplete="off">
+        <button type="submit">Envoyer</button>
+      </form>
+    </section>
+
+    <!-- Explorer -->
+    <section class="tab" id="tab-browse">
+      <div class="search-bar">
+        <svg viewBox="0 0 24 24"><path d="M10.5 3a7.5 7.5 0 0 1 5.96 12.06l4.74 4.74-1.4 1.4-4.74-4.74A7.5 7.5 0 1 1 10.5 3zm0 2a5.5 5.5 0 1 0 0 11 5.5 5.5 0 0 0 0-11z"/></svg>
+        <input id="search" type="search" placeholder="Films, séries…" autocomplete="off">
+      </div>
+      <div id="browse"></div>
+    </section>
+
+    <!-- Lecture en cours -->
+    <section class="tab" id="tab-now">
+      <div id="now"></div>
+    </section>
+
+    <!-- Plus -->
+    <section class="tab" id="tab-more">
+      <div id="more"></div>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button data-tab="remote" class="active"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 1 0 20 10 10 0 0 1 0-20zm0 4.5L9 10h6zm0 11 3-3.5H9zM6.5 12 10 15V9zm11 0L14 9v6z"/></svg><span>Télécommande</span></button>
+    <button data-tab="browse"><svg viewBox="0 0 24 24"><path d="M4 4h16a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1zm1 2v2h2V6zm12 0v2h2V6zM5 10v4h2v-4zm12 0v4h2v-4zM5 16v2h2v-2zm12 0v2h2v-2zM9 6v12h6V6z"/></svg><span>Explorer</span></button>
+    <button data-tab="now"><svg viewBox="0 0 24 24"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12.4-7.5a1 1 0 0 0 0-1.72L8.5 3.64A1 1 0 0 0 7 4.5z"/></svg><span>En cours</span></button>
+    <button data-tab="more"><svg viewBox="0 0 24 24"><path d="M10 2a3 3 0 0 1 3 3v1h4a1 1 0 0 1 1 1v4h1a3 3 0 1 1 0 6h-1v4a1 1 0 0 1-1 1h-4v-1a2 2 0 1 0-4 0v1H5a1 1 0 0 1-1-1v-4h1a2 2 0 1 0 0-4H4V7a1 1 0 0 1 1-1h2V5a3 3 0 0 1 3-3z"/></svg><span>Addons</span></button>
+  </nav>
+
+  <div id="sheet" class="sheet"><div class="sheet-body" id="sheetBody"></div></div>
+  <div id="toast"></div>
+
+  <script src="../js/util.js"></script>
+  <script src="../js/stremio.js"></script>
+  <script src="remote.js"></script>
+</body>
+</html>
