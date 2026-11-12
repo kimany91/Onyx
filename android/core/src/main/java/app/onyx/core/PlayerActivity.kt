@@ -2,6 +2,8 @@ package app.onyx.core
 
 import android.annotation.SuppressLint
 import android.app.Activity
+import android.app.AlertDialog
+import android.graphics.drawable.StateListDrawable
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -24,6 +26,8 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
@@ -58,6 +62,12 @@ class PlayerActivity : Activity() {
     private var reported = false
     private var pendingSeek = 0L
     private var videoId = ""
+    private var menu: JSONObject? = null
+    private var deviceLang = "fr"
+    private var pendingVo = false
+    private var selector: DefaultTrackSelector? = null
+    private lateinit var menuBtn: TextView
+    private val failTimeout = Runnable { finish() }
     private val ticker = object : Runnable {
         override fun run() { report(false); main.postDelayed(this, 2000) }
     }
@@ -80,6 +90,7 @@ class PlayerActivity : Activity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         reported = false; ended = false; error = null
+        main.removeCallbacks(failTimeout)
         load(intent)
     }
 
@@ -98,20 +109,41 @@ class PlayerActivity : Activity() {
             resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
             keepScreenOn = true
             setControllerVisibilityListener(PlayerView.ControllerVisibilityListener { v ->
-                titleBar.animate().alpha(if (v == View.VISIBLE) 1f else 0f).setDuration(250).start()
+                if (v == View.VISIBLE) { titleBar.visibility = View.VISIBLE; titleBar.animate().alpha(1f).setDuration(250).start() }
+                else titleBar.animate().alpha(0f).setDuration(250).withEndAction { titleBar.visibility = View.GONE }.start()
             })
         }
         root.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         titleBar = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(40f), dp(28f), dp(40f), dp(40f))
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.TOP
+            setPadding(dp(32f), dp(24f), dp(32f), dp(40f))
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xCC000000.toInt(), 0x00000000))
             alpha = 0f
+            visibility = View.GONE
         }
-        titleText = TextView(this).apply { setTextColor(Color.WHITE); textSize = 24f; typeface = Typeface.DEFAULT_BOLD }
-        subText = TextView(this).apply { setTextColor(0xFFB0B0B8.toInt()); textSize = 16f }
-        titleBar.addView(titleText); titleBar.addView(subText)
+        val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        titleText = TextView(this).apply { setTextColor(Color.WHITE); textSize = 22f; typeface = Typeface.DEFAULT_BOLD; maxLines = 1 }
+        subText = TextView(this).apply { setTextColor(0xFFB0B0B8.toInt()); textSize = 15f; maxLines = 1 }
+        texts.addView(titleText); texts.addView(subText)
+        titleBar.addView(texts, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        menuBtn = TextView(this).apply {
+            text = "⚙  Langue & qualité"
+            textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(16f), dp(10f), dp(16f), dp(10f))
+            isFocusable = true; isClickable = true
+            val r = dp(22f).toFloat()
+            background = StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = r })
+                addState(intArrayOf(android.R.attr.state_pressed), GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = r })
+                addState(intArrayOf(), GradientDrawable().apply { setColor(0x66000000); cornerRadius = r; setStroke(dp(1f), 0x55FFFFFF) })
+            }
+            setTextColor(android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+                intArrayOf(Color.BLACK, Color.BLACK, Color.WHITE)))
+            setOnClickListener { openMenu() }
+        }
+        titleBar.addView(menuBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(titleBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
 
         osd = TextView(this).apply {
@@ -131,6 +163,9 @@ class PlayerActivity : Activity() {
         val url = o.optString("url")
         if (url.isEmpty()) { finish(); return }
         videoId = o.optString("videoId")
+        menu = o.optJSONObject("menu")
+        deviceLang = o.optString("deviceLang", "fr")
+        menuBtn.visibility = if (menu != null) View.VISIBLE else View.GONE
         titleText.text = o.optString("title")
         subText.text = o.optString("subtitle")
         subText.visibility = if (subText.text.isNullOrEmpty()) View.GONE else View.VISIBLE
@@ -145,11 +180,13 @@ class PlayerActivity : Activity() {
             .setDefaultRequestProperties(headers)
         val sourceFactory = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
 
-        val audioLang = o.optString("audioLang", "fr")
-        val subLang = o.optString("subLang", "fr")
+        val audioLang = o.optString("audioLang", deviceLang)
+        val subLang = o.optString("subLang", "off")
         val selector = DefaultTrackSelector(this)
+        this.selector = selector
         val params = selector.buildUponParameters()
-        if (audioLang == "fr" || audioLang == "en") params.setPreferredAudioLanguage(audioLang)
+        pendingVo = audioLang == "vo"
+        if (audioLang != "vo") params.setPreferredAudioLanguage(audioLang)
         if (subLang != "off" && o.optBoolean("subtitlesAuto", true)) params.setPreferredTextLanguage(subLang)
         selector.setParameters(params)
 
@@ -190,6 +227,9 @@ class PlayerActivity : Activity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_ENDED) { ended = true; finish() }
             }
+            override fun onTracksChanged(tracks: Tracks) {
+                if (pendingVo && !tracks.isEmpty) { pendingVo = false; selectAudio("vo", false) }
+            }
             override fun onPlayerError(e: PlaybackException) {
                 error = when (e.errorCode) {
                     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "source indisponible"
@@ -199,7 +239,14 @@ class PlayerActivity : Activity() {
                     PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "format de fichier non supporté"
                     else -> e.errorCodeName
                 }
-                finish()
+                val cb = events
+                if (cb == null) { finish(); return }
+                // l'interface va essayer automatiquement une autre source (même position)
+                showOsd("Source indisponible, recherche d'une autre…", 6000)
+                cb("onyx-player", JSONObject().put("videoId", videoId).put("failed", true).put("error", error)
+                    .put("position", player?.currentPosition ?: 0).toString())
+                main.removeCallbacks(failTimeout)
+                main.postDelayed(failTimeout, 15000)
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) { report(false) }
         })
@@ -212,10 +259,114 @@ class PlayerActivity : Activity() {
         main.postDelayed(ticker, 2000)
     }
 
-    private fun normLang(l: String): String = when (l.lowercase()) {
-        "fre", "fra", "french" -> "fr"
-        "eng", "english" -> "en"
-        else -> l.lowercase()
+    private fun normLang(l: String?): String = when (val x = (l ?: "").lowercase()) {
+        "fre", "fra", "french", "fr-fr", "fr-ca" -> "fr"
+        "eng", "english", "en-us", "en-gb" -> "en"
+        "spa", "spanish", "es-es", "es-419" -> "es"
+        "ger", "deu", "german" -> "de"
+        "ita", "italian" -> "it"
+        "por", "pob", "pt-br", "portuguese" -> "pt"
+        "ara", "arabic" -> "ar"
+        else -> x.substringBefore('-')
+    }
+
+    /* ---------- Menu « Langue & qualité » ---------- */
+    private fun labelOf(key: String, code: String): String {
+        val arr = menu?.optJSONArray(key) ?: return code
+        for (i in 0 until arr.length()) { val o = arr.optJSONObject(i); if (o?.optString("code") == code) return o.optString("label") }
+        return code
+    }
+
+    private fun currentOf(key: String) = menu?.optJSONObject("current")?.optString(key) ?: ""
+
+    fun openMenu() {
+        val m = menu ?: return
+        val keys = arrayOf("audio", "subs", "quality")
+        val names = arrayOf("Audio", "Sous-titres", "Qualité")
+        val items = keys.indices.map { names[it] + " :  " + labelOf(keys[it], currentOf(keys[it])) }.toTypedArray()
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle("Langue & qualité" + (m.optString("info").let { if (it.isNotEmpty()) "\n" + it else "" }))
+            .setItems(items) { _, which -> openChoice(keys[which], names[which]) }
+            .setNegativeButton("Fermer", null)
+            .show()
+    }
+
+    private fun openChoice(key: String, name: String) {
+        val arr = menu?.optJSONArray(key) ?: return
+        val codes = (0 until arr.length()).map { arr.getJSONObject(it).optString("code") }
+        val labels = (0 until arr.length()).map { arr.getJSONObject(it).optString("label") }.toTypedArray()
+        val cur = codes.indexOf(currentOf(key))
+        AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+            .setTitle(name)
+            .setSingleChoiceItems(labels, cur) { d, which -> d.dismiss(); apply(key, codes[which]) }
+            .setNegativeButton("Annuler", null)
+            .show()
+    }
+
+    private fun setCurrent(key: String, code: String) {
+        val m = menu ?: return
+        val c = m.optJSONObject("current") ?: JSONObject().also { m.put("current", it) }
+        c.put(key, code)
+    }
+
+    private fun emitSwitch(key: String, code: String, inFile: Boolean) {
+        val p = player ?: return
+        events?.invoke("onyx-player", JSONObject().put("videoId", videoId).put("switch", JSONObject().put(key, code))
+            .put("inFile", inFile).put("position", p.currentPosition).put("duration", maxOf(0, p.duration)).put("paused", !p.isPlaying).toString())
+    }
+
+    private fun apply(key: String, code: String) {
+        val label = labelOf(key, code)
+        setCurrent(key, code)
+        when (key) {
+            "subs" -> { applySubs(code, true); emitSwitch(key, code, true) }
+            "audio" -> {
+                if (selectAudio(code, true)) {
+                    // VO → sous-titres dans la langue de l'appareil ; langue de l'appareil → sans sous-titres
+                    if (code == "vo" && currentOf("subs") == "off") { setCurrent("subs", deviceLang); applySubs(deviceLang, false) }
+                    else if (code == deviceLang) { setCurrent("subs", "off"); applySubs("off", false) }
+                    emitSwitch(key, code, true)
+                } else {
+                    showOsd("Recherche d'une version $label…", 4000)
+                    emitSwitch(key, code, false)
+                }
+            }
+            "quality" -> { showOsd("Recherche d'une version $label…", 4000); emitSwitch(key, code, false) }
+        }
+    }
+
+    private fun applySubs(code: String, notify: Boolean) {
+        val sel = selector ?: return
+        val b = sel.buildUponParameters().clearOverridesOfType(C.TRACK_TYPE_TEXT)
+        if (code == "off") b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).setPreferredTextLanguage(null)
+        else b.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).setPreferredTextLanguage(code)
+        sel.setParameters(b)
+        if (!notify) return
+        if (code == "off") { showOsd("Sous-titres désactivés"); return }
+        val has = player?.currentTracks?.groups?.any { it.type == C.TRACK_TYPE_TEXT && normLang(it.mediaTrackGroup.getFormat(0).language) == code } ?: false
+        showOsd(if (has) "Sous-titres : " + labelOf("subs", code) else "Pas de sous-titres " + labelOf("subs", code) + " pour cette vidéo", 3000)
+    }
+
+    /** Change la piste audio dans le fichier actuel si elle existe (fichiers MULTI). */
+    private fun selectAudio(code: String, notify: Boolean): Boolean {
+        val p = player ?: return false
+        val sel = selector ?: return false
+        val groups = p.currentTracks.groups.filter { it.type == C.TRACK_TYPE_AUDIO }
+        if (groups.isEmpty()) return false
+        val g = groups.firstOrNull { gr ->
+            val l = normLang(gr.mediaTrackGroup.getFormat(0).language)
+            if (code == "vo") l.isNotEmpty() && l != "und" && l != deviceLang else l == code
+        } ?: return false
+        sel.setParameters(sel.buildUponParameters().setOverrideForType(TrackSelectionOverride(g.mediaTrackGroup, 0)))
+        if (notify) showOsd("Audio : " + labelOf("audio", code), 2500)
+        return true
+    }
+
+    fun message(text: String) { showOsd(text, 3500) }
+
+    fun finishWithError(reason: String?) {
+        if (!reason.isNullOrEmpty()) error = reason
+        finish()
     }
 
     private fun fmt(ms: Long): String {
@@ -224,11 +375,11 @@ class PlayerActivity : Activity() {
         return if (h > 0) String.format("%d:%02d:%02d", h, m, sec) else String.format("%d:%02d", m, sec)
     }
 
-    private fun showOsd(text: String) {
+    private fun showOsd(text: String, ms: Long = 1500) {
         osd.text = text
         osd.animate().cancel(); osd.alpha = 1f
         main.removeCallbacks(hideOsd)
-        main.postDelayed(hideOsd, 1500)
+        main.postDelayed(hideOsd, ms)
     }
 
     private fun seekBy(seconds: Int) {
@@ -284,6 +435,8 @@ class PlayerActivity : Activity() {
                 KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { seekBy(30); return true }
                 KeyEvent.KEYCODE_MEDIA_REWIND -> { seekBy(-30); return true }
                 KeyEvent.KEYCODE_MEDIA_STOP -> { finish(); return true }
+                KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_SETTINGS, KeyEvent.KEYCODE_CAPTIONS, KeyEvent.KEYCODE_INFO,
+                KeyEvent.KEYCODE_MEDIA_AUDIO_TRACK -> { if (e.repeatCount == 0) openMenu(); return true }
             }
             if (!visible) {
                 when (code) {
@@ -325,6 +478,7 @@ class PlayerActivity : Activity() {
     }
 
     private fun close() {
+        main.removeCallbacks(failTimeout)
         main.removeCallbacks(ticker)
         main.removeCallbacks(applySeek)
         report(true)

@@ -8,10 +8,10 @@
     open: function (meta, video) {
       var type = meta.type;
       var videoId = video ? video.id : (meta.behaviorHints && meta.behaviorHints.defaultVideoId) || meta.id;
-      var lang = Onyx.settings.get('streamLang');
+      var prefs = S.prefs.forShow(meta.id);
       var list = h('div.track-v.sources-list', { 'data-vmode': 'visible' });
       var head = h('div.sources-head', [
-        h('div.sources-kicker', { text: 'Choisir une source' }),
+        h('div.sources-kicker', { text: 'Choix manuel de la source' }),
         h('h2', { text: meta.name || '' }),
         video ? h('div.sources-ep', { text: Onyx.player.epLabel(video) }) : null
       ]);
@@ -43,7 +43,7 @@
         var spin = Onyx.$('.mini-spin', g);
         if (spin) spin.remove();
         var items = res.streams.map(function (s, i) { return { addon: res.addon, stream: s, info: S.streamInfo(s), addonIndex: idx, index: i }; });
-        S.sortStreams(items, lang);
+        items = S.rank(items, prefs);
         if (!items.length) {
           g.appendChild(h('div.source-empty', { text: res.error ? 'L\'addon ne répond pas' : 'Aucune source' }));
         }
@@ -62,18 +62,18 @@
         var info = it.info;
         var badges = [];
         if (info.cached) badges.push(h('span.badge.hot', { text: '⚡ Instantané' }));
-        if (info.fr) badges.push(h('span.badge.fr', { text: 'FR' }));
         info.badges.forEach(function (b) { badges.push(h('span.badge', { text: b })); });
         if (info.size) badges.push(h('span.badge.dim', { text: info.size }));
         if (info.kind === 'torrent') badges.push(h('span.badge.dim', { text: 'Torrent' }));
         if (info.kind === 'youtube' || info.kind === 'external') badges.push(h('span.badge.dim', { text: 'Externe' }));
-        var lines = info.title.split('\n').filter(Boolean);
+        var lang = info.multi ? 'Multi-langues (VF + VO)' : info.vostfr ? 'VO sous-titrée' : info.langs.length ? info.langs.map(S.langLabel).join(' / ') : 'Version originale';
+        var file = (info.title.split('\n').filter(Boolean)[0] || '').replace(/^[^\w\[]+/, '');
         var el = h('button.source.f', { type: 'button' }, [
-          h('div.source-q', [h('b', { text: info.quality || '—' }), h('small', { text: info.name.replace(info.quality, '').trim().slice(0, 40) })]),
+          h('div.source-q', [h('b', { text: info.quality || 'HD' })]),
           h('div.source-body', [
-            h('div.source-title', { text: lines[0] || info.name }),
-            lines.length > 1 ? h('div.source-sub', { text: lines.slice(1).join('  ·  ') }) : null,
-            badges.length ? h('div.source-badges', badges) : null
+            h('div.source-title', { text: lang }),
+            badges.length ? h('div.source-badges', badges) : null,
+            file ? h('div.source-file', { text: file }) : null
           ])
         ]);
         el.addEventListener('click', function () {
@@ -102,7 +102,8 @@
       h('div.chip-row', { 'data-remember': '' }, [h('div.row-viewport', [seasonsChips])]),
       h('div.row.ep-row', { 'data-remember': '' }, [h('div.row-viewport', [epTrack])])
     ]);
-    var top = h('div.detail-top', [titleBox, lineBox, desc, credits, actions]);
+    var prefLine = h('div.detail-prefs');
+    var top = h('div.detail-top', [titleBox, lineBox, desc, credits, actions, prefLine]);
     var track = h('div.track-v', { 'data-vmode': 'visible' }, [top, epSection]);
     var el = h('div.view.detail', [h('div.detail-vp', [track])]);
     var season = null;
@@ -143,28 +144,40 @@
       return aired[0] || vids[0] || null;
     }
 
+    function prefsSummary(m) {
+      var p = S.prefs.forShow(m.id);
+      return 'Audio : ' + S.langLabel(p.audio).replace(' (VO)', '') + '   ·   Sous-titres : ' + (p.subs === 'off' ? 'non' : S.langLabel(p.subs)) + '   ·   Qualité : ' + S.qualityLabel(p.quality);
+    }
+
     function buildActions(m) {
       actions.innerHTML = '';
       var isSeries = (m.videos || []).length > 0 && m.type !== 'movie';
       var last = Onyx.progress.lastForMeta(m.id);
-      if (last && !last.watched && last.stream && last.position > 20) {
-        var lbl = 'Reprendre' + (last.video ? ' S' + last.video.season + ':E' + last.video.episode : '') + ' · ' + Onyx.fmtTime(last.position);
-        actions.appendChild(Onyx.btn(lbl, 'play', function () {
-          var v = (m.videos || []).filter(function (x) { return x.id === last.videoId; })[0] || null;
-          Onyx.player.play({ meta: Onyx.preview(m), fullMeta: m, type: m.type, videoId: last.videoId, video: v, stream: last.stream });
-        }, 'primary default'));
-      }
       var target = isSeries ? targetEpisode(m) : null;
-      var playLabel = isSeries && target ? 'Lecture S' + target.season + ':E' + (target.episode || target.number) : 'Lecture';
-      actions.appendChild(Onyx.btn(last && !last.watched && last.stream ? 'Autres sources' : playLabel, 'play', function () {
-        Onyx.sources.open(m, isSeries ? target : null);
-      }, actions.children.length ? '' : 'primary default'));
+      var resume = last && !last.watched && last.position > 20 && (!isSeries || !target || target.id === last.videoId);
+      var label;
+      if (resume) label = 'Reprendre' + (last.video ? ' S' + last.video.season + ':E' + last.video.episode : '') + ' · ' + Onyx.fmtTime(last.position);
+      else label = isSeries && target ? 'Lecture S' + target.season + ':E' + (target.episode || target.number) : 'Lecture';
+      actions.appendChild(Onyx.btn(label, 'play', function () {
+        Onyx.player.auto(m, isSeries ? target : null, {});
+      }, 'primary default'));
       var lb = Onyx.btn('Ma liste', Onyx.library.has(m.id) ? 'check' : 'plus', function () {
         var added = Onyx.library.toggle(m);
         lb.innerHTML = (added ? Onyx.icons.check : Onyx.icons.plus) + '<span>Ma liste</span>';
         Onyx.toast(added ? 'Ajouté à Ma liste' : 'Retiré de Ma liste');
       });
       actions.appendChild(lb);
+      actions.appendChild(Onyx.btn('Langue & qualité', 'globe', function () {
+        Onyx.player.optionsModal(S.prefs.forShow(m.id), null, function (changes, cur) {
+          S.prefs.setShow(m.id, { audio: cur.audio, subs: cur.subs, quality: cur.quality === 'auto' ? 'auto' : Number(cur.quality) });
+          prefLine.textContent = prefsSummary(m);
+          Onyx.toast('Préférences enregistrées pour ce titre', 'ok');
+        });
+      }));
+      if (isSeries) actions.appendChild(Onyx.btn('Épisodes', 'list', function () {
+        var c = Onyx.$('.ep-card.current', epTrack) || Onyx.$('.ep-card', epTrack);
+        if (c) Onyx.focus.set(c);
+      }));
       var trailer = (m.trailerStreams && m.trailerStreams[0]) || (m.trailers && m.trailers[0] && { ytId: m.trailers[0].source });
       if (trailer && trailer.ytId) {
         actions.appendChild(Onyx.btn('Bande-annonce', 'movie', function () {
@@ -172,10 +185,8 @@
           if (!Onyx.native.openExternal(url)) window.open(url, '_blank');
         }));
       }
-      if (isSeries) actions.appendChild(Onyx.btn('Épisodes', 'list', function () {
-        var c = Onyx.$('.ep-card.current', epTrack) || Onyx.$('.ep-card', epTrack);
-        if (c) Onyx.focus.set(c);
-      }));
+      actions.appendChild(Onyx.btn('Sources', 'list', function () { Onyx.sources.open(m, isSeries ? target : null); }, 'ghost'));
+      prefLine.textContent = prefsSummary(m);
     }
 
     function buildSeasons(m) {
@@ -214,7 +225,7 @@
           h('div.ep-title', { text: (num ? num + '. ' : '') + (v.name || v.title || 'Épisode ' + num) }),
           h('div.ep-desc', { text: future ? 'Sortie le ' + new Date(v.released).toLocaleDateString('fr-FR') : (v.overview || v.description || '') })
         ]);
-        card.addEventListener('click', function () { Onyx.sources.open(full || m, v); });
+        card.addEventListener('click', function () { Onyx.player.auto(full || m, v, {}); });
         epTrack.appendChild(card);
       });
     }
@@ -234,7 +245,7 @@
       }
       if (params.autoplay) {
         var isSeries = (m.videos || []).length > 0 && m.type !== 'movie';
-        Onyx.sources.open(m, isSeries ? targetEpisode(m) : null);
+        Onyx.player.auto(m, isSeries ? targetEpisode(m) : null, {});
       }
       return m;
     }).catch(function () {
@@ -242,7 +253,7 @@
       actions.innerHTML = '';
       buildActions(meta);
       if (el.classList.contains('active')) Onyx.focus.set(Onyx.$('.btn.default', actions));
-      if (params.autoplay) Onyx.sources.open(meta, null);
+      if (params.autoplay) Onyx.player.auto(meta, null, {});
     });
 
     var onProgress = Onyx.debounce(function () { if (full) { buildActions(full); if (full.videos && full.videos.length && season !== null) renderEpisodes(full); } }, 300);

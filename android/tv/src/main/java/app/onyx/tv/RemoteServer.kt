@@ -19,6 +19,7 @@ class RemoteServer(private val ctx: Context, port: Int) : NanoHTTPD("0.0.0.0", p
     data class Device(val name: String, val ip: String, var lastSeen: Long)
 
     @Volatile var state: String = "{}"
+    @Volatile var progress: String = "{}"
     @Volatile var onCommand: ((JSONObject, String) -> Unit)? = null
     val devices = ConcurrentHashMap<String, Device>()
     private val prefs = ctx.getSharedPreferences("onyx_remote", Context.MODE_PRIVATE)
@@ -76,6 +77,16 @@ class RemoteServer(private val ctx: Context, port: Int) : NanoHTTPD("0.0.0.0", p
             devices["$name@$ip"] = Device(name, ip, System.currentTimeMillis())
 
             if (uri == "/api/state") return json(Response.Status.OK, state)
+            if (uri == "/api/progress" && session.method == Method.GET) return json(Response.Status.OK, progress)
+            if (uri == "/api/progress" && session.method == Method.POST) {
+                val files = HashMap<String, String>()
+                try { session.parseBody(files) } catch (_: Exception) { }
+                val body = files["postData"] ?: "{}"
+                val entries = try { JSONObject(body).optJSONObject("entries") ?: JSONObject() } catch (_: Exception) { JSONObject() }
+                val cmd = JSONObject().put("action", "progress-merge").put("entries", entries)
+                onCommand?.invoke(cmd, cmd.toString())
+                return json(Response.Status.OK, "{\"ok\":true}")
+            }
             if (uri == "/api/cmd" && session.method == Method.POST) {
                 val files = HashMap<String, String>()
                 try { session.parseBody(files) } catch (_: Exception) { }

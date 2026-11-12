@@ -53,6 +53,7 @@ const handlers = {
   devices: () => JSON.stringify(server ? server.devices() : []),
   resetToken: () => (server ? server.resetToken() : null),
   setState: (json) => { if (server) server.setState(json); return true; },
+  setProgress: (json) => { if (server) server.setProgress(json); return true; },
   play: () => false,
   openExternal: (url, mime) => {
     if (mime && /^video/.test(mime)) {

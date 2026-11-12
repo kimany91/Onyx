@@ -151,6 +151,10 @@ class MainActivity : Activity() {
             return true
         }
 
+        @JavascriptInterface fun closePlayer(reason: String?) { runOnUiThread { PlayerActivity.current?.finishWithError(reason) } }
+
+        @JavascriptInterface fun playerMessage(text: String) { runOnUiThread { PlayerActivity.current?.message(text) } }
+
         @JavascriptInterface fun openExternal(url: String, mime: String?): Boolean {
             return try {
                 val i = Intent(Intent.ACTION_VIEW)

@@ -1,6 +1,7 @@
 package app.onyx.tv
 
 import android.webkit.JavascriptInterface
+import app.onyx.core.PlayerActivity
 import app.onyx.core.Updater
 
 /** Fonctions natives appelables depuis l'interface (window.OnyxNative). */
@@ -19,6 +20,12 @@ class OnyxBridge(private val activity: MainActivity) {
     @JavascriptInterface fun resetToken(): String? = app.server?.resetToken()
 
     @JavascriptInterface fun setState(json: String) { app.server?.state = json }
+
+    @JavascriptInterface fun setProgress(json: String) { app.server?.progress = json }
+
+    @JavascriptInterface fun closePlayer(reason: String?) { OnyxApp.main.post { PlayerActivity.current?.finishWithError(reason) } }
+
+    @JavascriptInterface fun playerMessage(text: String) { OnyxApp.main.post { PlayerActivity.current?.message(text) } }
 
     @JavascriptInterface fun play(json: String): Boolean {
         OnyxApp.main.post { activity.play(json) }

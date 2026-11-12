@@ -10,6 +10,7 @@
       return S.account.pullAddons().then(function (list) {
         Onyx.toast(list.length + ' addons récupérés depuis ton compte', 'ok');
         Onyx.bus.emit('addons-changed');
+        S.account.pullProgress().then(function (e) { if (e.length) Onyx.progress.mergeAll(e); });
         return S.account.pullLibrary().then(function (items) {
           Onyx.library.addMany(items.map(function (x) { return { id: x._id, type: x.type, name: x.name, poster: x.poster }; }));
         }).catch(function () { });
@@ -85,12 +86,21 @@
       }
 
       section('Lecture');
-      choice('Langue préférée des sources', 'streamLang', [
-        { value: 'fr', label: 'Français (VF / MULTI en premier)' }, { value: 'en', label: 'Anglais en premier' }, { value: 'all', label: 'Ordre des addons' }
-      ], { icon: 'globe' });
-      choice('Sous-titres', 'subLang', [
-        { value: 'fr', label: 'Français' }, { value: 'en', label: 'Anglais' }, { value: 'off', label: 'Désactivés' }
-      ], { icon: 'cc' });
+      var gp = S.prefs.global(), opts = S.menuOptions(null, gp);
+      function prefChoice(label, key, list, icon, help) {
+        var cur = String(gp[key]);
+        var curLabel = (list.filter(function (o) { return o.code === cur; })[0] || {}).label || cur;
+        row(label, curLabel, function () {
+          Onyx.choose(label, list.map(function (o) { return { value: o.code, label: o.label }; }), cur).then(function (v) {
+            if (v === undefined) return;
+            var o = {}; o[key] = key === 'quality' && v !== 'auto' ? Number(v) : v;
+            S.prefs.setGlobal(o); render();
+          });
+        }, { icon: icon, help: help });
+      }
+      prefChoice('Langue audio par défaut', 'audio', opts.audio, 'globe', 'Onyx choisit tout seul le fichier dans cette langue. Modifiable pour chaque titre.');
+      prefChoice('Sous-titres par défaut', 'subs', opts.subs, 'cc');
+      prefChoice('Qualité par défaut', 'quality', opts.quality, 'movie', 'Le fichier le plus proche de cette qualité est choisi automatiquement.');
       var players = [{ value: 'internal', label: plat === 'android-tv' ? 'Lecteur Onyx (ExoPlayer, recommandé)' : 'Lecteur Onyx intégré' }];
       players.push({ value: 'external', label: plat === 'desktop' ? 'VLC / lecteur externe' : 'Lecteur externe (VLC, MX Player…)' });
       choice('Lecteur vidéo', 'player', players, { icon: 'play' });

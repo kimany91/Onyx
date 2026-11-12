@@ -23,75 +23,157 @@
     return Promise.race([p, new Promise(function (r) { setTimeout(function () { r(def); }, ms); })]);
   }
 
-  function subLangMatch(lang, pref) {
-    lang = (lang || '').toLowerCase();
-    var map = { fr: ['fr', 'fre', 'fra', 'french'], en: ['en', 'eng', 'english'] };
-    return (map[pref] || [pref]).indexOf(lang) >= 0;
+  function videoIdOf(meta, video) {
+    return video ? video.id : (meta.behaviorHints && meta.behaviorHints.defaultVideoId) || meta.id;
   }
 
-  /* ctx: {meta, fullMeta, type, videoId, video, stream} */
-  P.play = function (ctx) {
-    var mode = Onyx.settings.get('player');
-    var loading = showLoading(ctx);
-    var prog = Onyx.progress.get(ctx.videoId);
-    var startAt = 0;
-    if (prog && !prog.watched && prog.position > 20) startAt = prog.position;
-    if (ctx.startAt !== undefined) startAt = ctx.startAt;
-
-    S.resolve(ctx.stream, Onyx.settings.get('streamServer')).then(function (res) {
-      if (res.external) {
+  /* ---------- Lecture automatique « à la Netflix » ----------
+     Récupère toutes les sources, choisit le fichier qui correspond à la langue
+     et à la qualité voulues, et passe au suivant si un fichier ne marche pas. */
+  P.auto = function (meta, video, opts) {
+    opts = opts || {};
+    var type = meta.type, videoId = videoIdOf(meta, video);
+    var prefs = S.prefs.forShow(meta.id);
+    if (opts.prefs) Object.keys(opts.prefs).forEach(function (k) { prefs[k] = opts.prefs[k]; });
+    var loading = showLoading(meta, video);
+    var itemsP = opts.items ? Promise.resolve(opts.items) : S.collect(type, videoId, function (n, done, total) {
+      loading.status('Recherche des sources… ' + done + '/' + total + (n ? ' · ' + n + ' fichiers' : ''));
+    });
+    itemsP.then(function (items) {
+      if (loading.cancelled) return;
+      if (!items.length) {
         loading.close();
-        if (!Onyx.native.openExternal(res.external)) window.open(res.external, '_blank');
+        Onyx.toast('Aucune source trouvée pour ce titre avec tes addons.', 'error', 5000);
+        if (Onyx.sources) Onyx.sources.open(meta, video);
         return;
       }
-      var pref = Onyx.settings.get('subLang');
-      var subsP = pref === 'off' ? Promise.resolve([]) : withTimeout(S.subtitles(ctx.type, ctx.videoId, {}), 5000, []);
-      return subsP.then(function (subs) {
-        subs = (subs || []).filter(function (s) { return s && s.url; });
-        var preferred = subs.filter(function (s) { return subLangMatch(s.lang, pref); });
-        var others = subs.filter(function (s) { return !subLangMatch(s.lang, pref) && subLangMatch(s.lang, 'en'); });
-        var list = preferred.slice(0, 6).concat(others.slice(0, 2)).map(function (s, i) {
-          return { url: s.url, lang: s.lang, label: (s.lang || '?').toUpperCase() + ' ' + (i + 1) };
-        });
-        loading.close();
-        P.ctx = ctx;
-        Onyx.progress.update({
-          videoId: ctx.videoId, meta: Onyx.preview(ctx.meta), type: ctx.type, video: ctx.video ? { season: ctx.video.season, episode: ctx.video.episode || ctx.video.number, name: ctx.video.name || ctx.video.title, thumbnail: ctx.video.thumbnail } : null,
-          stream: ctx.stream, position: startAt, duration: (prog && prog.duration) || 0
-        });
-        var title = ctx.meta.name || '';
-        var sub = epLabel(ctx.video);
-        // pas de sous-titres automatiques si la source est déjà dans la langue préférée
-        var autoSubs = !(pref === 'fr' && S.streamInfo(ctx.stream).fr);
-        if (mode === 'external') {
-          if (!Onyx.native.openExternal(res.url, 'video/*')) window.open(res.url, '_blank');
-          return;
+      var ranked = S.rank(items, prefs);
+      if (opts.stream) {
+        ranked = [{ stream: opts.stream, info: S.streamInfo(opts.stream), addon: null }]
+          .concat(ranked.filter(function (x) { return !S.sameStream(x.stream, opts.stream); }));
+      } else {
+        // même fichier que la dernière fois s'il correspond toujours aussi bien
+        var prog = Onyx.progress.get(videoId);
+        if (prog && prog.stream && !opts.prefs) {
+          var i = ranked.findIndex(function (x) { return S.sameStream(x.stream, prog.stream); });
+          if (i > 0 && ranked[i].score >= ranked[0].score - 20) ranked.unshift(ranked.splice(i, 1)[0]);
         }
-        if (Onyx.native.isAndroid()) {
-          P.nativeActive = true;
-          Onyx.native.play({
-            url: res.url, headers: res.headers || null, title: title, subtitle: sub, subtitles: list,
-            startAt: Math.floor(startAt * 1000), videoId: ctx.videoId, subLang: pref,
-            audioLang: Onyx.settings.get('streamLang'), subtitlesAuto: autoSubs,
-            poster: ctx.meta.poster || '', background: Onyx.bgOf(ctx.meta) || ''
-          });
-          pushState();
-          return;
-        }
-        openHtml5(res.url, title, sub, list, startAt, autoSubs);
-      });
-    }).catch(function (e) {
-      loading.close();
-      Onyx.toast(e.message || 'Lecture impossible', 'error', 5000);
+      }
+      var ctx = { meta: Onyx.preview(meta), fullMeta: meta, type: type, videoId: videoId, video: video || null, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt };
+      start(ctx, 0, loading);
     });
   };
 
-  function showLoading(ctx) {
+  /* Compatibilité : lecture d'une source précise (choix manuel / téléphone) */
+  P.play = function (ctx) {
+    P.auto(ctx.fullMeta || ctx.meta, ctx.video, { stream: ctx.stream, startAt: ctx.startAt });
+  };
+
+  function start(ctx, i, loading) {
+    var cand = ctx.ranked[i];
+    if (!cand) {
+      if (loading) loading.close();
+      if (P.nativeActive) Onyx.native.call('closePlayer', 'aucune source lisible');
+      Onyx.toast('Aucune source n\'a pu être lue. Choisis-en une manuellement.', 'error', 6000);
+      if (Onyx.sources) Onyx.sources.open(ctx.fullMeta, ctx.video);
+      return;
+    }
+    ctx.tryIndex = i; ctx.stream = cand.stream; ctx.info = cand.info;
+    if (!loading && !P.nativeActive) loading = showLoading(ctx.fullMeta, ctx.video);
+    if (loading) loading.status(S.describe(cand.info) + (cand.addon ? '  ·  ' + cand.addon.manifest.name : ''));
+    var prog = Onyx.progress.get(ctx.videoId);
+    var startAt = ctx.startAt !== undefined ? ctx.startAt : (prog && !prog.watched && prog.position > 20 ? prog.position : 0);
+    S.resolve(cand.stream, Onyx.settings.get('streamServer')).then(function (res) {
+      if (loading && loading.cancelled) return;
+      if (res.external) {
+        if (loading) loading.close();
+        if (!Onyx.native.openExternal(res.external)) window.open(res.external, '_blank');
+        return;
+      }
+      ctx.subsP = ctx.subsP || withTimeout(S.subtitles(ctx.type, ctx.videoId, {}), 5000, []);
+      return ctx.subsP.then(function (subs) {
+        if (loading && loading.cancelled) return;
+        if (loading) loading.close();
+        launch(ctx, res, S.pickSubtitles(subs, ctx.prefs), startAt);
+      });
+    }).catch(function () {
+      if (loading && loading.cancelled) return;
+      start(ctx, i + 1, loading);
+    });
+  }
+
+  function menuFor(ctx) {
+    var m = S.menuOptions(ctx.items, ctx.prefs);
+    m.current = { audio: ctx.prefs.audio, subs: ctx.prefs.subs, quality: String(ctx.prefs.quality) };
+    m.deviceLang = S.deviceLang();
+    m.info = S.describe(ctx.info);
+    return m;
+  }
+
+  function launch(ctx, res, subs, startAt) {
+    var mode = Onyx.settings.get('player');
+    P.ctx = ctx;
+    var prev = Onyx.progress.get(ctx.videoId);
+    Onyx.progress.update({
+      videoId: ctx.videoId, meta: ctx.meta, type: ctx.type,
+      video: ctx.video ? { season: ctx.video.season, episode: ctx.video.episode || ctx.video.number, name: ctx.video.name || ctx.video.title, thumbnail: ctx.video.thumbnail } : null,
+      stream: ctx.stream, position: startAt, duration: (prev && prev.duration) || 0
+    });
+    var title = ctx.meta.name || '';
+    var sub = epLabel(ctx.video);
+    if (mode === 'external') {
+      if (!Onyx.native.openExternal(res.url, 'video/*')) window.open(res.url, '_blank');
+      return;
+    }
+    if (Onyx.native.isAndroid()) {
+      P.nativeActive = true;
+      Onyx.native.play({
+        url: res.url, headers: res.headers || null, title: title, subtitle: sub, subtitles: subs,
+        startAt: Math.floor(startAt * 1000), videoId: ctx.videoId,
+        audioLang: ctx.prefs.audio, subLang: ctx.prefs.subs, subtitlesAuto: ctx.prefs.subs !== 'off',
+        deviceLang: S.deviceLang(), menu: menuFor(ctx)
+      });
+      pushState();
+      return;
+    }
+    openHtml5(res.url, title, sub, subs, startAt, ctx);
+  }
+
+  /* Changement de langue / qualité pendant la lecture : on garde la position */
+  P.applyPrefs = function (ctx, changes, position, inFile) {
+    var changedFile = false;
+    Object.keys(changes).forEach(function (k) {
+      var v = changes[k];
+      if (k === 'quality' && v !== 'auto') v = Number(v);
+      if (ctx.prefs[k] !== v) { ctx.prefs[k] = v; if (k !== 'subs') changedFile = true; }
+    });
+    // VO choisie sans sous-titres → sous-titres dans la langue de l'appareil (et inversement)
+    if (changes.audio === 'vo' && ctx.prefs.subs === 'off' && !changes.subs) ctx.prefs.subs = S.deviceLang();
+    if (changes.audio && changes.audio === S.deviceLang() && !changes.subs) ctx.prefs.subs = 'off';
+    S.prefs.setShow(ctx.meta.id, { audio: ctx.prefs.audio, subs: ctx.prefs.subs, quality: ctx.prefs.quality });
+    if (!changedFile || inFile) return false;
+    var ranked = S.rank(ctx.items, ctx.prefs);
+    if (S.sameStream(ranked[0].stream, ctx.stream)) {
+      var msg = 'Pas d\'autre version disponible : ' + S.describe(ctx.info);
+      if (P.nativeActive) Onyx.native.call('playerMessage', msg); else Onyx.toast(msg);
+      return false;
+    }
+    ctx.ranked = ranked;
+    ctx.startAt = position;
+    if (P.nativeActive) Onyx.native.call('playerMessage', 'Changement : ' + S.describe(ranked[0].info) + '…');
+    start(ctx, 0, null);
+    return true;
+  };
+
+  function showLoading(meta, video) {
+    var status = h('small.pl-status', { text: 'Recherche de la meilleure source…' });
     var api = Onyx.modal(h('div.play-loading', [
       h('div.pl-gem', { html: Onyx.gemSvg('gem-load') }),
-      h('p', { text: 'Préparation de ' + (ctx.meta.name || 'la lecture') + '…' }),
-      Onyx.btn('Annuler', null, function () { api.close(); }, 'default')
-    ]), { cls: 'loading-modal' });
+      h('p', { text: (meta.name || 'Lecture') + (video ? '  ·  ' + epLabel(video) : '') }),
+      status,
+      Onyx.btn('Annuler', null, function () { api.cancelled = true; api.close(); }, 'default')
+    ]), { cls: 'loading-modal', onClose: function () { api.cancelled = true; } });
+    api.status = function (t) { status.textContent = t; };
     return api;
   }
 
@@ -99,14 +181,24 @@
   Onyx.bus.on('native-player', function (d) {
     if (!d || !P.ctx) return;
     if (d.videoId && d.videoId !== P.ctx.videoId) return;
-    if (d.position !== undefined) {
+    var ctx = P.ctx;
+    if (d.position !== undefined && !d.failed) {
       P.nativeState = d;
-      Onyx.progress.update({ videoId: P.ctx.videoId, position: d.position / 1000, duration: d.duration / 1000, ended: !!d.ended });
+      Onyx.progress.update({ videoId: ctx.videoId, position: d.position / 1000, duration: d.duration / 1000, ended: !!d.ended });
     }
+    if (d.failed) {
+      // fichier illisible : on essaie automatiquement le suivant, au même endroit
+      var pos = d.position > 0 ? d.position / 1000 : ctx.startAt;
+      ctx.startAt = pos;
+      Onyx.native.call('playerMessage', 'Source indisponible, essai d\'une autre…');
+      start(ctx, (ctx.tryIndex || 0) + 1, null);
+      return;
+    }
+    if (d['switch']) { P.applyPrefs(ctx, d['switch'], d.position / 1000, !!d.inFile); return; }
     if (d.closed) {
       P.nativeActive = false;
-      var ctx = P.ctx;
-      if (d.error) Onyx.toast('Lecture impossible : ' + d.error + '. Essaie une autre source.', 'error', 6000);
+      if (d.error) Onyx.toast('Lecture impossible : ' + d.error, 'error', 6000);
+      S.account.pushProgress(Onyx.progress.get(ctx.videoId));
       if (d.ended) afterEnded(ctx);
       pushState();
     }
@@ -115,15 +207,63 @@
   function afterEnded(ctx) {
     if (!ctx || !Onyx.settings.get('autoNext')) return;
     var nv = nextVideo(ctx.fullMeta || ctx.meta, ctx.videoId);
-    if (nv && Onyx.sources) {
-      Onyx.toast('À suivre : ' + epLabel(nv));
-      setTimeout(function () { Onyx.sources.open(ctx.fullMeta || ctx.meta, nv); }, 600);
+    if (nv) {
+      Onyx.toast('Épisode suivant : ' + epLabel(nv));
+      setTimeout(function () { P.auto(ctx.fullMeta || ctx.meta, nv, { startAt: 0 }); }, 800);
     }
   }
 
+  /* Fenêtre « Langue & qualité » (télécommande) */
+  P.optionsModal = function (prefs, items, onApply) {
+    var cur = { audio: prefs.audio, subs: prefs.subs, quality: String(prefs.quality) };
+    var opts = S.menuOptions(items, prefs);
+    var api;
+    function section(title, key, list) {
+      var track = h('div.track-h.chips', { 'data-hmode': 'visible' });
+      function render() {
+        track.innerHTML = '';
+        list.forEach(function (o) {
+          var c = h('button.chip.f' + (cur[key] === o.code ? '.active' : ''), { type: 'button', text: o.label });
+          c.addEventListener('click', function () {
+            cur[key] = o.code;
+            if (key === 'audio' && o.code === 'vo' && cur.subs === 'off') cur.subs = S.deviceLang();
+            if (key === 'audio' && o.code === S.deviceLang()) cur.subs = 'off';
+            renderAll();
+          });
+          track.appendChild(c);
+        });
+      }
+      track._render = render;
+      return { el: h('div.opt-section', { 'data-remember': '' }, [h('h3', { text: title }), h('div.row-viewport', [track])]), render: render };
+    }
+    var secs = [section('Audio', 'audio', opts.audio), section('Sous-titres', 'subs', opts.subs), section('Qualité', 'quality', opts.quality)];
+    function renderAll() {
+      var focusedLabel = Onyx.focus.cur && Onyx.focus.cur.textContent;
+      secs.forEach(function (x) { x.render(); });
+      var again = Onyx.$$('.chip', api ? api.el : document).filter(function (c) { return c.textContent === focusedLabel; })[0];
+      if (again) Onyx.focus.set(again, { noScroll: true });
+    }
+    secs.forEach(function (x) { x.render(); });
+    api = Onyx.modal(h('div.dialog.wide.options', [
+      h('h2', { text: 'Langue & qualité' }),
+      h('p', { text: 'Onyx choisit automatiquement le fichier qui correspond. Le choix est mémorisé pour ce titre.' }),
+      secs[0].el, secs[1].el, secs[2].el,
+      h('div.dialog-actions', [
+        Onyx.btn('Appliquer', 'check', function () {
+          api.close(true);
+          var changes = {};
+          ['audio', 'subs', 'quality'].forEach(function (k) { if (cur[k] !== String(prefs[k])) changes[k] = cur[k]; });
+          onApply(changes, cur);
+        }, 'primary'),
+        Onyx.btn('Annuler', null, function () { api.close(true); })
+      ])
+    ]));
+    setTimeout(function () { var a = Onyx.$('.chip.active', api.el); if (a) Onyx.focus.set(a); }, 30);
+  };
+
   /* ---------- Lecteur HTML5 (PC / navigateur) ---------- */
   var hideTimer, seekAcc = 0, seekTimer;
-  function openHtml5(url, title, sub, subs, startAt, autoSubs) {
+  function openHtml5(url, title, sub, subs, startAt, ctx) {
     closeHtml5(true);
     var video = h('video', { autoplay: true, playsinline: true, preload: 'auto' });
     var played = h('i.pl-played'), buffered = h('i.pl-buffered'), thumb = h('i.pl-thumb');
@@ -133,6 +273,7 @@
     var rewBtn = h('button.pl-btn.f', { type: 'button', html: Onyx.icons.rew + '<b>10</b>' });
     var fwdBtn = h('button.pl-btn.f', { type: 'button', html: Onyx.icons.fwd + '<b>10</b>' });
     var ccBtn = h('button.pl-btn.f', { type: 'button', html: Onyx.icons.cc });
+    var optBtn = Onyx.btn('Langue & qualité', 'globe', null, 'ghost');
     var srcBtn = Onyx.btn('Sources', null, null, 'ghost');
     var nextBtn = Onyx.btn('Épisode suivant', 'play', null, 'ghost');
     var closeBtn = h('button.pl-btn.f', { type: 'button', html: Onyx.icons.close });
@@ -148,7 +289,7 @@
         h('div.pl-progress', [tCur, bar, tDur]),
         h('div.pl-controls', [
           h('div.pl-left', [rewBtn, playBtn, fwdBtn]),
-          h('div.pl-right', [subs.length ? ccBtn : null, nv ? nextBtn : null, srcBtn, closeBtn])
+          h('div.pl-right', [subs.length ? ccBtn : null, optBtn, nv ? nextBtn : null, srcBtn, closeBtn])
         ])
       ])
     ]);
@@ -179,7 +320,7 @@
         tracks[i] = tr.track;
       }).catch(function () { osd('Sous-titres indisponibles'); });
     }
-    if (autoSubs && subs.length && Onyx.settings.get('subLang') !== 'off' && subLangMatch(subs[0].lang, Onyx.settings.get('subLang'))) loadSub(0);
+    if (ctx.prefs.subs !== 'off') { var si = subs.findIndex(function (x) { return x.lang === ctx.prefs.subs; }); if (si >= 0) loadSub(si); }
     ccBtn.addEventListener('click', function () { loadSub(subIdx + 1 >= subs.length ? -1 : subIdx + 1); });
 
     video.src = url;
@@ -200,10 +341,12 @@
     video.addEventListener('pause', function () { playBtn.innerHTML = Onyx.icons.play; showControls(true); pushState(); });
     video.addEventListener('ended', function () { saveProgress(true); var c = P.ctx; closeHtml5(); afterEnded(c); });
     video.addEventListener('error', function () {
-      var c = P.ctx;
-      closeHtml5();
-      Onyx.toast('Ce format ne peut pas être lu par le lecteur intégré. Essaie une autre source ou le lecteur externe.', 'error', 6000);
-      if (c && Onyx.sources) Onyx.sources.open(c.fullMeta || c.meta, c.video);
+      // fichier illisible ici : on passe automatiquement au suivant, au même endroit
+      var c = P.ctx, pos = video.currentTime || startAt;
+      closeHtml5(true);
+      Onyx.toast('Source illisible, essai d\'une autre…');
+      c.startAt = pos;
+      start(c, (c.tryIndex || 0) + 1, null);
     });
     spinner.classList.add('show');
 
@@ -212,7 +355,18 @@
     fwdBtn.addEventListener('click', function () { seek(10); });
     closeBtn.addEventListener('click', function () { closeHtml5(); });
     srcBtn.addEventListener('click', function () { var c = P.ctx; closeHtml5(); if (c && Onyx.sources) Onyx.sources.open(c.fullMeta || c.meta, c.video); });
-    nextBtn.addEventListener('click', function () { var c = P.ctx; closeHtml5(); if (c && nv && Onyx.sources) Onyx.sources.open(c.fullMeta || c.meta, nv); });
+    nextBtn.addEventListener('click', function () { var c = P.ctx; closeHtml5(); if (c && nv) P.auto(c.fullMeta || c.meta, nv, { startAt: 0 }); });
+    optBtn.addEventListener('click', function () {
+      P.optionsModal(ctx.prefs, ctx.items, function (changes) {
+        if (changes.subs) {
+          var si = subs.findIndex(function (x) { return x.lang === changes.subs; });
+          loadSub(changes.subs === 'off' ? -1 : si);
+          if (changes.subs !== 'off' && si < 0) osd('Pas de sous-titres ' + S.langLabel(changes.subs) + ' pour cette vidéo');
+        }
+        var pos = video.currentTime;
+        if (P.applyPrefs(ctx, changes, pos, false)) closeHtml5(true);
+      });
+    });
     bar.addEventListener('click', function (e) {
       if (e.clientX && video.duration) {
         var r = bar.getBoundingClientRect();
@@ -267,6 +421,7 @@
   function closeHtml5(silent) {
     if (!P.el) return;
     saveProgress(false);
+    if (P.ctx && !silent) S.account.pushProgress(Onyx.progress.get(P.ctx.videoId));
     clearInterval(P.progressTimer);
     try { P.video.pause(); P.video.removeAttribute('src'); P.video.load(); } catch (e) { }
     P.el.remove();

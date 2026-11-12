@@ -128,12 +128,21 @@
       detail: detail,
       nowPlaying: Onyx.player.state(),
       addons: S.addons.map(function (a) { return { transportUrl: a.transportUrl, manifest: a.manifest }; }),
-      streamLang: Onyx.settings.get('streamLang'),
+      prefs: S.prefs.global(),
       account: S.account.get() ? S.account.get().email : null
     });
   }, 200);
   S.onChange(function () { app.pushState(); });
-  Onyx.bus.on('progress', function () { app.pushState(); });
+  Onyx.bus.on('progress', function () { app.pushState(); pushProgress(); });
+  // la progression est partagée avec le téléphone via le serveur de connexion
+  var pushProgress = Onyx.debounce(function () {
+    if (Onyx.native.available) Onyx.native.call('setProgress', JSON.stringify(Onyx.progress.all()));
+  }, 3000);
+  function pullAccountProgress() {
+    if (!S.account.get()) return;
+    S.account.pullProgress().then(function (entries) { if (entries.length) Onyx.progress.mergeAll(entries); });
+  }
+  setInterval(pullAccountProgress, 10 * 60 * 1000);
 
   /* ---------- Commandes du téléphone ---------- */
   Onyx.bus.on('remote', function (cmd) {
@@ -160,6 +169,18 @@
       };
       S.meta(cmd.type || meta.type, meta.id).then(go, function () { go(null); });
       Onyx.toast('Lecture demandée depuis le téléphone');
+    } else if (a === 'autoplay') {
+      while (Onyx.closeTopModal()) { }
+      if (Onyx.player.active) Onyx.player.close(true);
+      S.meta(cmd.type, cmd.id).then(function (full) {
+        var v = cmd.videoId && full.videos ? full.videos.filter(function (x) { return x.id === cmd.videoId; })[0] : null;
+        Onyx.player.auto(full, v || null, { prefs: cmd.prefs || null, startAt: cmd.startAt });
+      }, function () {
+        Onyx.player.auto(cmd.meta || { id: cmd.id, type: cmd.type, name: '' }, null, { prefs: cmd.prefs || null });
+      });
+      Onyx.toast('Lecture demandée depuis le téléphone');
+    } else if (a === 'progress-merge') {
+      Onyx.progress.mergeAll(cmd.entries || {});
     } else if (a === 'sources') {
       S.meta(cmd.type, cmd.id).then(function (m) {
         var v = cmd.videoId && m.videos ? m.videos.filter(function (x) { return x.id === cmd.videoId; })[0] : null;
@@ -221,6 +242,8 @@
         // vérification des mises à jour
         setTimeout(function () { Onyx.native.checkUpdate(false); }, 4000);
         // synchronisation silencieuse des addons du compte Stremio
+        pullAccountProgress();
+        pushProgress();
         if (S.account.get()) {
           var before = S.addons.map(function (a) { return a.transportUrl; }).join('|');
           S.account.pullAddons().then(function () {

@@ -4,7 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 const call = (name) => (...args) => ipcRenderer.sendSync('onyx', name, args);
 const api = {};
-['platform', 'version', 'serverInfo', 'devices', 'resetToken', 'setState', 'play', 'openExternal', 'toggleFullscreen', 'checkUpdate', 'exitApp']
+['platform', 'version', 'serverInfo', 'devices', 'resetToken', 'setState', 'setProgress', 'play', 'openExternal', 'toggleFullscreen', 'checkUpdate', 'exitApp']
   .forEach((n) => { api[n] = call(n); });
 contextBridge.exposeInMainWorld('OnyxNative', api);
 

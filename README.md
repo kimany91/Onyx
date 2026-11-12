@@ -57,11 +57,23 @@ Le téléphone et la TV doivent être sur le **même Wi-Fi**. Depuis le téléph
 - **Addons › Ajouter par URL** : colle l'URL `…/manifest.json` d'un addon, exactement comme dans Stremio.
 - **Addons › Catalogue d'addons / Communauté** : le catalogue officiel de Stremio.
 
-Lecture :
-- les sources en lien direct (HTTP) se lancent dans le **lecteur Onyx** (ExoPlayer : MKV, HEVC, HDR, sous-titres) ;
-- les sources torrent ont besoin du **serveur de streaming Stremio** (`Paramètres › Serveur de streaming`,
-  par défaut `http://127.0.0.1:11470`, c'est-à-dire l'app Stremio ouverte sur le même appareil) ;
-- `Paramètres › Lecteur vidéo › Lecteur externe` permet d'utiliser VLC / MX Player.
+Lecture « comme Netflix » (TV, téléphone et PC) :
+- tu appuies sur **Lecture** ou sur un épisode : Onyx récupère les fichiers de tous tes addons et
+  **choisit tout seul** celui qui correspond à ta langue et à ta qualité (pas de liste à trier) ;
+- **Langue & qualité** : audio (langue de l'appareil par défaut, VO, anglais, espagnol…), sous-titres
+  et qualité (Auto, 4K, 1440p, 1080p, 720p, SD). Le choix est mémorisé pour chaque série / film ;
+- pendant la lecture, bouton **⚙ Langue & qualité** (ou touche Menu de la télécommande) : si le fichier
+  contient déjà la langue (MULTI), la piste change instantanément ; sinon Onyx charge un autre fichier
+  et **reprend exactement au même endroit** ;
+- si un fichier ne se lit pas, Onyx passe automatiquement au suivant, au même endroit ;
+- épisodes vus, position de lecture et « Reprendre » sont **partagés entre la TV et le téléphone**
+  (dès qu'ils sont connectés) et avec ton **compte Stremio** si tu es connecté ;
+- l'épisode suivant se lance tout seul à la fin ;
+- le choix manuel d'un fichier reste disponible (bouton *Sources* sur la TV, « Choisir un fichier
+  manuellement » sur le téléphone).
+
+Les sources torrent ont besoin du **serveur de streaming Stremio** (`Paramètres › Serveur de streaming`,
+par défaut `http://127.0.0.1:11470`, c'est-à-dire l'app Stremio ouverte sur le même appareil).
 
 Onyx n'héberge aucun contenu : tout vient des addons que tu choisis d'installer.
 

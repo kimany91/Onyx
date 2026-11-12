@@ -514,3 +514,14 @@ body.playing #view, body.playing #backdrop { visibility: hidden; }
 
 /* ---------- Souris (version PC) ---------- */
 body.mouse .f { cursor: pointer; }
+
+/* ---------- Langue & qualité ---------- */
+.detail-prefs { margin-top: 1.2rem; color: var(--muted); font-size: 1.1rem; font-weight: 600; letter-spacing: .01em; }
+.dialog.options { width: 76rem; }
+.opt-section { margin-top: 1.4rem; }
+.opt-section h3 { font-size: 1.15rem; color: var(--muted); text-transform: uppercase; letter-spacing: .12em; margin-bottom: .2rem; }
+.opt-section .chips { padding: .7rem .2rem; }
+.pl-status { display: block; color: var(--muted); font-size: 1.2rem; margin: -1rem 0 2rem; max-width: 50rem; }
+.source-q b { font-size: 1.4rem; }
+.source-file { color: var(--dim); font-size: .95rem; margin-top: .4rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.source.focused .source-file { color: #666; }

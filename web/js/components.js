@@ -210,6 +210,28 @@
       Onyx.bus.emit('progress', e);
     },
     remove: function (videoId) { var all = this.all(); delete all[videoId]; Onyx.store.set('progress', all); },
+    /* Fusionne des entrées venant d'un autre appareil : la plus récente gagne.
+       Renvoie les entrées locales plus récentes que celles reçues (à renvoyer à l'autre appareil). */
+    mergeAll: function (incoming) {
+      var all = this.all(), changed = false, newer = {};
+      var inc = incoming || {};
+      if (Array.isArray(inc)) { var o = {}; inc.forEach(function (e) { if (e && e.videoId) o[e.videoId] = e; }); inc = o; }
+      Object.keys(inc).forEach(function (k) {
+        var e = inc[k];
+        if (!e || !e.videoId) return;
+        var l = all[k];
+        if (!l || (e.updated || 0) > (l.updated || 0)) {
+          var m = Object.assign({}, l || {}, e);
+          if (!e.meta && l) m.meta = l.meta;
+          if (!e.stream && l && l.stream) m.stream = l.stream;
+          m.watched = !!e.watched || (m.duration > 0 && m.position / m.duration > 0.92);
+          all[k] = m; changed = true;
+        }
+      });
+      Object.keys(all).forEach(function (k) { var l = all[k]; if (!inc[k] || (l.updated || 0) > (inc[k].updated || 0)) newer[k] = l; });
+      if (changed) { Onyx.store.set('progress', all); Onyx.bus.emit('progress', null); }
+      return newer;
+    },
     continueList: function () {
       var all = this.all(), seen = {}, out = [];
       Object.keys(all).map(function (k) { return all[k]; })

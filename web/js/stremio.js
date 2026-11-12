@@ -234,15 +234,49 @@
   };
 
   /* ---------- Analyse des sources ---------- */
-  var LANG_RE = {
-    fr: /\b(french|fran[cç]ais|vff|vfq|vfi|vf2?|truefrench|vostfr|multi)\b|🇫🇷/i,
-    en: /\b(english|eng|vo)\b|🇬🇧|🇺🇸/i
+  var LANGS = {
+    fr: { label: 'Français', re: /\b(vff|vfq|vfi|vf2|vf|truefrench|french|fran[cç]ais|fre|fra)\b|🇫🇷/i, subs: ['fr', 'fre', 'fra', 'fr-fr', 'french'] },
+    en: { label: 'Anglais', re: /\b(english|eng)\b|🇬🇧|🇺🇸/i, subs: ['en', 'eng', 'en-us', 'en-gb', 'english'] },
+    es: { label: 'Espagnol', re: /\b(spanish|castellano|latino|esp|spa)\b|🇪🇸|🇲🇽/i, subs: ['es', 'spa', 'spanish'] },
+    de: { label: 'Allemand', re: /\b(german|deutsch|ger|deu)\b|🇩🇪/i, subs: ['de', 'ger', 'deu', 'german'] },
+    it: { label: 'Italien', re: /\b(italian|ita)\b|🇮🇹/i, subs: ['it', 'ita', 'italian'] },
+    pt: { label: 'Portugais', re: /\b(portuguese|por|pt-br)\b|🇵🇹|🇧🇷/i, subs: ['pt', 'por', 'pob', 'pt-br', 'portuguese'] },
+    ar: { label: 'Arabe', re: /\b(arabic|ara)\b|🇸🇦/i, subs: ['ar', 'ara', 'arabic'] }
   };
+  S.LANGS = LANGS;
+  S.deviceLang = function () {
+    var l = String((navigator.languages && navigator.languages[0]) || navigator.language || 'fr').slice(0, 2).toLowerCase();
+    return LANGS[l] ? l : 'fr';
+  };
+  S.langLabel = function (code) {
+    if (code === 'vo') return 'Version originale (VO)';
+    if (code === 'off') return 'Désactivés';
+    return (LANGS[code] && LANGS[code].label) || code;
+  };
+  S.subLangMatch = function (lang, code) {
+    lang = String(lang || '').toLowerCase();
+    var L = LANGS[code];
+    return L ? L.subs.indexOf(lang) >= 0 : lang === code;
+  };
+
+  S.QUALITIES = [
+    { value: 'auto', label: 'Automatique (la meilleure)' }, { value: 2160, label: '4K (2160p)' }, { value: 1440, label: '1440p' },
+    { value: 1080, label: 'Full HD (1080p)' }, { value: 720, label: 'HD (720p)' }, { value: 480, label: 'SD (480p)' }
+  ];
+  S.qualityLabel = function (v) {
+    if (v === 'auto' || !v) return 'Auto';
+    return v >= 2160 ? '4K' : v + 'p';
+  };
+
+  function streamText(s) {
+    return (s.name || '').replace(/\n/g, ' ') + ' ' + (s.title || s.description || '') + ' ' + ((s.behaviorHints && s.behaviorHints.filename) || '');
+  }
   S.streamInfo = function (s) {
     var name = (s.name || '').replace(/\n/g, ' ');
     var title = s.title || s.description || '';
-    var all = name + ' ' + title + ' ' + ((s.behaviorHints && s.behaviorHints.filename) || '');
-    var q = /2160p|\b4k\b|uhd/i.test(all) ? '4K' : /1080p/i.test(all) ? '1080p' : /720p/i.test(all) ? '720p' : /480p|\bsd\b/i.test(all) ? 'SD' : '';
+    var all = streamText(s);
+    var res = /2160p|\b4k\b|\buhd\b/i.test(all) ? 2160 : /1440p|\b2k\b|\bqhd\b/i.test(all) ? 1440 : /1080p|\bfhd\b/i.test(all) ? 1080
+      : /720p/i.test(all) ? 720 : /576p|480p|\bsd\b|dvdrip/i.test(all) ? 480 : 0;
     var badges = [];
     if (/\bhdr(10)?\+?\b/i.test(all)) badges.push('HDR');
     if (/\b(dv|dovi|dolby ?vision)\b/i.test(all)) badges.push('DV');
@@ -250,24 +284,144 @@
     if (/\b(hevc|x265|h\.?265)\b/i.test(all)) badges.push('HEVC');
     var size = (all.match(/(\d+(?:[.,]\d+)?)\s?(GB|MB|Go|Mo)\b/i) || [])[0] || '';
     var kind = s.url ? 'url' : s.infoHash ? 'torrent' : s.ytId ? 'youtube' : s.externalUrl ? 'external' : 'unknown';
+    var multi = /\bmulti\b/i.test(all);
+    var vostfr = /\bvost(fr)?\b|\bsubfrench\b/i.test(all);
+    var langs = Object.keys(LANGS).filter(function (k) { return LANGS[k].re.test(all); });
+    if (vostfr && !multi && !/\b(vff|vfq|truefrench|vf2?)\b/i.test(all)) langs = langs.filter(function (l) { return l !== 'fr'; });
     return {
-      name: name || 'Source', title: title, quality: q, badges: badges, size: size, kind: kind,
-      fr: LANG_RE.fr.test(all), en: LANG_RE.en.test(all), cached: /\[(RD|AD|PM|DL|TB|ED|OC)\+\]|⚡|cached/i.test(name)
+      name: name || 'Source', title: title, res: res, quality: res ? S.qualityLabel(res) : '', badges: badges, size: size, kind: kind,
+      multi: multi, vostfr: vostfr, langs: langs, fr: multi || langs.indexOf('fr') >= 0,
+      cached: /\[(RD|AD|PM|DL|TB|ED|OC)\+\]|⚡|cached/i.test(name)
     };
   };
-  var QRANK = { '4K': 4, '1080p': 3, '720p': 2, 'SD': 1, '': 0 };
+  /* Libellé humain : « Français · 1080p · HDR » */
+  S.describe = function (info) {
+    var lang = info.multi ? 'Multi-langues' : info.vostfr ? 'VOSTFR' : info.langs.length ? info.langs.map(S.langLabel).join(', ') : 'VO';
+    return [lang, info.quality || 'Qualité inconnue'].concat(info.badges.filter(function (b) { return b !== 'HEVC'; })).join(' · ');
+  };
+
+  /* Préférences de lecture (globales + mémorisées par série/film comme Netflix) */
+  S.prefs = {
+    global: function () {
+      var d = S.deviceLang();
+      var g = load('playPrefs', null) || {};
+      return { audio: g.audio || d, subs: g.subs || 'off', quality: g.quality || 'auto' };
+    },
+    setGlobal: function (p) { var g = S.prefs.global(); Object.keys(p).forEach(function (k) { g[k] = p[k]; }); save('playPrefs', g); },
+    forShow: function (id) {
+      var g = S.prefs.global(), all = load('showPrefs', {}), o = (id && all[id]) || {};
+      return { audio: o.audio || g.audio, subs: o.subs || g.subs, quality: o.quality || g.quality };
+    },
+    setShow: function (id, p) {
+      if (!id) return;
+      var all = load('showPrefs', {}), o = all[id] || {};
+      Object.keys(p).forEach(function (k) { o[k] = p[k]; });
+      all[id] = o;
+      save('showPrefs', all);
+    }
+  };
+
+  /* Note une source selon les préférences : la langue d'abord, puis la qualité */
+  S.score = function (info, prefs) {
+    var dev = S.deviceLang(), a = prefs.audio || dev, sc = 0;
+    var tagged = info.langs.length > 0;
+    if (a === 'vo') {
+      if (info.multi) sc += 100;
+      else if (info.vostfr) sc += 95;
+      else if (!tagged) sc += 85;
+      else if (info.langs.length === 1 && info.langs[0] === dev) sc += 0;
+      else sc += 70;
+    } else {
+      if (info.langs.indexOf(a) >= 0) sc += 100;
+      else if (info.multi) sc += (a === 'fr' ? 95 : 55);
+      else if (!tagged && a === 'en') sc += 75;
+      else if (info.vostfr && a !== 'fr') sc += 5;
+      else sc += 0;
+    }
+    sc *= 1.5;
+    var r = info.res || 700, q = prefs.quality;
+    if (q === 'auto' || !q) sc += Math.min(r, 2160) / 2160 * 60;
+    else {
+      q = Number(q);
+      if (r === q) sc += 60;
+      else if (r < q) sc += 60 - (q - r) / 360 * 15;
+      else sc += 45 - (r - q) / 360 * 10;
+    }
+    if (info.kind === 'url') sc += 30;
+    else if (info.kind === 'torrent') sc += 0;
+    else sc -= 200;
+    if (info.cached) sc += 10;
+    if (info.badges.indexOf('DV') >= 0 && info.badges.indexOf('HDR') < 0) sc -= 8;
+    return sc;
+  };
+  /* items: [{addon, stream, info, addonIndex, index}] → triés, meilleur en premier */
+  S.rank = function (items, prefs) {
+    items.forEach(function (it) { it.score = S.score(it.info, prefs) - it.addonIndex * 0.6 - it.index * 0.08; });
+    return items.slice().sort(function (a, b) { return b.score - a.score; });
+  };
   S.sortStreams = function (items, lang) {
-    // items: [{addon, stream, info, addonIndex, index}]
-    return items.sort(function (a, b) {
-      if (lang && lang !== 'all') {
-        var la = a.info[lang] ? 1 : 0, lb = b.info[lang] ? 1 : 0;
-        if (la !== lb) return lb - la;
-      }
-      if (a.addonIndex !== b.addonIndex) return a.addonIndex - b.addonIndex;
-      return a.index - b.index;
+    return S.rank(items, { audio: lang && lang !== 'all' ? lang : S.deviceLang(), quality: 'auto' });
+  };
+  S.sameStream = function (a, b) {
+    if (!a || !b) return false;
+    if (a.url && b.url) return a.url === b.url;
+    if (a.infoHash && b.infoHash) return a.infoHash === b.infoHash && (a.fileIdx || 0) === (b.fileIdx || 0);
+    return false;
+  };
+
+  /* Récupère les sources de tous les addons : rend la main dès que c'est suffisant */
+  S.collect = function (type, id, onProgress) {
+    return new Promise(function (resolve) {
+      var items = [], done = false, settleT = null;
+      var addons = S.streamAddons(type, id);
+      if (!addons.length) return resolve(items);
+      var left = addons.length;
+      function finish() { if (!done) { done = true; clearTimeout(settleT); clearTimeout(maxT); resolve(items); } }
+      var maxT = setTimeout(finish, 20000);
+      S.streams(type, id, function (res) {
+        var idx = addons.indexOf(res.addon);
+        res.streams.forEach(function (s, i) { items.push({ addon: res.addon, stream: s, info: S.streamInfo(s), addonIndex: idx, index: i }); });
+        left--;
+        if (onProgress) onProgress(items.length, addons.length - left, addons.length);
+        if (!left) return finish();
+        if (items.length && !settleT) settleT = setTimeout(finish, 4500);
+      });
     });
   };
-  S.qualityRank = function (q) { return QRANK[q] || 0; };
+
+  /* Options proposées dans le menu « Langue & qualité » */
+  S.menuOptions = function (items, prefs) {
+    var dev = S.deviceLang();
+    var audio = [dev, 'vo'];
+    (items || []).forEach(function (it) { it.info.langs.forEach(function (l) { if (audio.indexOf(l) < 0) audio.push(l); }); });
+    if (prefs && audio.indexOf(prefs.audio) < 0) audio.push(prefs.audio);
+    var subs = ['off', dev];
+    ['en', 'es', 'de', 'it', 'pt'].forEach(function (l) { if (subs.indexOf(l) < 0) subs.push(l); });
+    var qs = ['auto'];
+    var found = {};
+    (items || []).forEach(function (it) { if (it.info.res) found[it.info.res] = 1; });
+    [2160, 1440, 1080, 720, 480].forEach(function (q) { if (found[q] || !items || !items.length) qs.push(q); });
+    if (prefs && prefs.quality !== 'auto' && qs.indexOf(Number(prefs.quality)) < 0) qs.push(Number(prefs.quality));
+    return {
+      audio: audio.map(function (c) { return { code: c, label: c === dev ? S.langLabel(c) + ' (appareil)' : S.langLabel(c) }; }),
+      subs: subs.map(function (c) { return { code: c, label: S.langLabel(c) }; }),
+      quality: qs.map(function (q) { return { code: String(q), label: q === 'auto' ? 'Automatique' : S.qualityLabel(q) }; })
+    };
+  };
+
+  /* Sous-titres utiles : langue choisie + appareil + anglais */
+  S.pickSubtitles = function (subs, prefs) {
+    var want = [];
+    [prefs.subs, S.deviceLang(), 'en'].forEach(function (l) { if (l && l !== 'off' && want.indexOf(l) < 0) want.push(l); });
+    var out = [];
+    want.forEach(function (code) {
+      var n = 0;
+      (subs || []).forEach(function (x) {
+        if (x && x.url && n < 3 && S.subLangMatch(x.lang, code)) { n++; out.push({ url: x.url, lang: code, label: S.langLabel(code) + (n > 1 ? ' ' + n : '') }); }
+      });
+    });
+    return out;
+  };
 
   /* Transforme une source en URL lisible */
   S.resolve = function (stream, serverUrl) {
@@ -332,6 +486,49 @@
           if (list.length) S.setAddons(list);
           return list;
         });
+    },
+    /* Envoie la position de lecture au compte Stremio (« Continuer à regarder » partout) */
+    pushProgress: function (e) {
+      var a = S.account.get();
+      if (!a || !e || !e.meta || !e.meta.id) return Promise.resolve();
+      var id = e.meta.id;
+      return S.fetchJSON(API + 'datastoreGet', { body: { type: 'DatastoreGet', authKey: a.authKey, collection: 'libraryItem', ids: [id], all: false } })
+        .then(function (j) {
+          var now = new Date().toISOString();
+          var item = (j && j.result && j.result[0]) || {
+            _id: id, name: e.meta.name || '', type: e.meta.type || e.type || 'movie', poster: e.meta.poster || null, posterShape: 'poster',
+            removed: true, temp: true, _ctime: now, _mtime: now,
+            state: { lastWatched: now, timeWatched: 0, timeOffset: 0, overallTimeWatched: 0, timesWatched: 0, flaggedWatched: 0, duration: 0, video_id: null, watched: null, noNotif: false },
+            behaviorHints: { defaultVideoId: null, featuredVideoId: null, hasScheduledVideos: false }
+          };
+          var st = item.state = item.state || {};
+          st.timeOffset = e.watched ? 0 : Math.round((e.position || 0) * 1000);
+          st.duration = Math.round((e.duration || 0) * 1000);
+          st.video_id = e.videoId || id;
+          st.lastWatched = now;
+          if (e.watched) st.timesWatched = (st.timesWatched || 0) + 1;
+          item._mtime = now;
+          return S.fetchJSON(API + 'datastorePut', { body: { type: 'DatastorePut', authKey: a.authKey, collection: 'libraryItem', changes: [item] } });
+        }).catch(function () { });
+    },
+    /* Récupère les positions de lecture du compte (format des entrées de progression Onyx) */
+    pullProgress: function () {
+      var a = S.account.get();
+      if (!a) return Promise.resolve([]);
+      return S.fetchJSON(API + 'datastoreGet', { body: { type: 'DatastoreGet', authKey: a.authKey, collection: 'libraryItem', all: true, ids: [] } })
+        .then(function (j) {
+          return ((j && j.result) || []).filter(function (x) {
+            return x.state && x.state.video_id && x.state.timeOffset > 0 && (x.type === 'movie' || x.type === 'series');
+          }).map(function (x) {
+            var parts = String(x.state.video_id).split(':');
+            var video = parts.length >= 3 ? { season: Number(parts[parts.length - 2]), episode: Number(parts[parts.length - 1]) } : null;
+            return {
+              videoId: x.state.video_id, type: x.type, meta: { id: x._id, type: x.type, name: x.name, poster: x.poster || null },
+              video: video, position: x.state.timeOffset / 1000, duration: (x.state.duration || 0) / 1000,
+              updated: Date.parse(x.state.lastWatched || x._mtime) || 0
+            };
+          });
+        }).catch(function () { return []; });
     },
     pullLibrary: function () {
       var a = S.account.get();

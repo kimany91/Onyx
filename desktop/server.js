@@ -35,6 +35,7 @@ class RemoteServer {
     this.version = opts.version || 'dev';
     this.platform = opts.platform || 'desktop';
     this.state = {};
+    this.progress = '{}';
     this.devicesMap = {};
     this.token = this._load().token || this._newToken();
   }
@@ -70,6 +71,7 @@ class RemoteServer {
   }
   devices() { return Object.values(this.devicesMap); }
   setState(json) { try { this.state = typeof json === 'string' ? JSON.parse(json) : json; } catch (e) { } }
+  setProgress(json) { this.progress = typeof json === 'string' ? json : JSON.stringify(json || {}); }
 
   _cors(res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -99,6 +101,22 @@ class RemoteServer {
     if (p.indexOf('/api/') === 0) {
       if (!this._authed(req, url)) return this._json(res, 401, { error: 'unauthorized' });
       if (p === '/api/state' && req.method === 'GET') return this._json(res, 200, this.state || {});
+      if (p === '/api/progress' && req.method === 'GET') {
+        this._cors(res);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+        return res.end(this.progress || '{}');
+      }
+      if (p === '/api/progress' && req.method === 'POST') {
+        let body = '';
+        req.on('data', (c) => { body += c; if (body.length > 5e6) req.destroy(); });
+        req.on('end', () => {
+          let entries = {};
+          try { entries = JSON.parse(body || '{}').entries || {}; } catch (e) { }
+          try { this.onCommand({ action: 'progress-merge', entries }); } catch (e) { }
+          this._json(res, 200, { ok: true });
+        });
+        return;
+      }
       if (p === '/api/cmd' && req.method === 'POST') {
         let body = '';
         req.on('data', (c) => { body += c; if (body.length > 1e6) req.destroy(); });
