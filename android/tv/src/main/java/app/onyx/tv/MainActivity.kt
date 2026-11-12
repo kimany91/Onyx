@@ -18,6 +18,7 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.webkit.WebViewAssetLoader
+import app.onyx.core.PlayerActivity
 import app.onyx.core.Updater
 import org.json.JSONObject
 

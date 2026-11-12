@@ -2,6 +2,11 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+val copyWeb by tasks.registering(Sync::class) {
+    from(rootProject.file("../web"))
+    into(layout.buildDirectory.dir("generated/webassets/web"))
+}
+
 android {
     namespace = "app.onyx.remote"
     compileSdk = 35
@@ -27,12 +32,16 @@ android {
         release { isMinifyEnabled = false; signingConfig = signing }
         debug { signingConfig = signing }
     }
+    sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/webassets"))
     buildFeatures { buildConfig = true }
     lint { checkReleaseBuilds = false; abortOnError = false }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
 }
+tasks.named("preBuild") { dependsOn(copyWeb) }
+
 dependencies {
+    implementation("androidx.webkit:webkit:1.12.1")
     implementation(project(":core"))
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
 }

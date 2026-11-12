@@ -13,9 +13,32 @@ concurrency:
   group: onyx-release
   cancel-in-progress: false
 
+env:
+  TAG: v1.0.${{ github.run_number }}
+  GH_TOKEN: ${{ github.token }}
+  GH_REPO: ${{ github.repository }}
+
 jobs:
+  # Les fichiers sont envoyés directement dans une Release (brouillon),
+  # publiée à la fin quand tout est prêt.
+  prepare:
+    name: Préparation de la version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Création du brouillon de Release
+        run: |
+          gh release create "$TAG" --draft --target "${{ github.sha }}" --title "Onyx ${TAG#v}" --notes "**Onyx ${TAG#v}**
+
+          | Fichier | Pour |
+          |---|---|
+          | \`onyx-tv.apk\` | La TV (Android TV / Google TV) |
+          | \`onyx-remote.apk\` | Le téléphone Android (seul ou comme télécommande de la TV) |
+          | \`Onyx-Setup.exe\` | Windows (installation, mises à jour auto) |
+          | \`Onyx-Portable.exe\` | Windows (sans installation) |"
+
   android:
     name: APK Android (TV + téléphone)
+    needs: prepare
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,18 +64,16 @@ jobs:
         run: |
           chmod +x gradlew
           ./gradlew assembleRelease -PonyxVersionCode=${{ github.run_number }} --no-daemon --stacktrace
-      - name: Renommage
+      - name: Envoi dans la Release
         run: |
           mkdir -p out
           cp android/tv/build/outputs/apk/release/tv-release.apk out/onyx-tv.apk
           cp android/remote/build/outputs/apk/release/remote-release.apk out/onyx-remote.apk
-      - uses: actions/upload-artifact@v4
-        with:
-          name: android
-          path: out/
+          gh release upload "$TAG" out/onyx-tv.apk out/onyx-remote.apk --clobber
 
   windows:
     name: Version Windows
+    needs: prepare
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -72,38 +93,21 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
         run: npm run dist
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows
-          path: |
-            desktop/dist/Onyx-Setup.exe
-            desktop/dist/Onyx-Setup.exe.blockmap
-            desktop/dist/Onyx-Portable.exe
-            desktop/dist/latest.yml
+      - name: Envoi dans la Release
+        shell: bash
+        run: gh release upload "$TAG" desktop/dist/Onyx-Setup.exe desktop/dist/Onyx-Setup.exe.blockmap desktop/dist/Onyx-Portable.exe desktop/dist/latest.yml --clobber
 
-  release:
+  publish:
     name: Publication (mises à jour automatiques)
     needs: [android, windows]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-      - run: ls -la dist
-      - uses: softprops/action-gh-release@v2
-        with:
-          tag_name: v1.0.${{ github.run_number }}
-          name: Onyx 1.0.${{ github.run_number }}
-          target_commitish: ${{ github.sha }}
-          make_latest: 'true'
-          body: |
-            **Onyx 1.0.${{ github.run_number }}**
+      - run: gh release edit "$TAG" --draft=false --latest
 
-            | Fichier | Pour |
-            |---|---|
-            | `onyx-tv.apk` | La TV (Android TV / Google TV) |
-            | `onyx-remote.apk` | Ton téléphone Android (télécommande) |
-            | `Onyx-Setup.exe` | Windows (installation, mises à jour auto) |
-            | `Onyx-Portable.exe` | Windows (sans installation) |
-          files: dist/*
+  cleanup:
+    name: Nettoyage en cas d'échec
+    needs: [android, windows]
+    if: failure()
+    runs-on: ubuntu-latest
+    steps:
+      - run: gh release delete "$TAG" --yes --cleanup-tag || true

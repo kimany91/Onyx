@@ -1,4 +1,4 @@
-package app.onyx.tv
+package app.onyx.core
 
 import android.annotation.SuppressLint
 import android.app.Activity
@@ -8,6 +8,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.KeyEvent
@@ -40,6 +42,9 @@ class PlayerActivity : Activity() {
 
     companion object {
         @Volatile var current: PlayerActivity? = null
+        /** Reçoit les événements du lecteur (nom, JSON) : branché par l'app TV ou téléphone. */
+        @Volatile var events: ((String, String) -> Unit)? = null
+        val main = Handler(Looper.getMainLooper())
     }
 
     private var player: ExoPlayer? = null
@@ -54,7 +59,7 @@ class PlayerActivity : Activity() {
     private var pendingSeek = 0L
     private var videoId = ""
     private val ticker = object : Runnable {
-        override fun run() { report(false); OnyxApp.main.postDelayed(this, 2000) }
+        override fun run() { report(false); main.postDelayed(this, 2000) }
     }
     private val applySeek = Runnable {
         player?.let { p -> p.seekTo((p.currentPosition + pendingSeek).coerceIn(0, maxOf(0, p.duration - 1000))) }
@@ -134,7 +139,7 @@ class PlayerActivity : Activity() {
         val headers = HashMap<String, String>()
         o.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> headers[k] = h.optString(k) } }
         val http = DefaultHttpDataSource.Factory()
-            .setUserAgent(headers.remove("User-Agent") ?: "Mozilla/5.0 (Linux; Android) Onyx/${BuildConfig.VERSION_NAME}")
+            .setUserAgent(headers.remove("User-Agent") ?: "Mozilla/5.0 (Linux; Android) Onyx")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(20000).setReadTimeoutMs(30000)
             .setDefaultRequestProperties(headers)
@@ -203,8 +208,8 @@ class PlayerActivity : Activity() {
         p.prepare()
         p.playWhenReady = true
         view.showController()
-        OnyxApp.main.removeCallbacks(ticker)
-        OnyxApp.main.postDelayed(ticker, 2000)
+        main.removeCallbacks(ticker)
+        main.postDelayed(ticker, 2000)
     }
 
     private fun normLang(l: String): String = when (l.lowercase()) {
@@ -222,8 +227,8 @@ class PlayerActivity : Activity() {
     private fun showOsd(text: String) {
         osd.text = text
         osd.animate().cancel(); osd.alpha = 1f
-        OnyxApp.main.removeCallbacks(hideOsd)
-        OnyxApp.main.postDelayed(hideOsd, 1500)
+        main.removeCallbacks(hideOsd)
+        main.postDelayed(hideOsd, 1500)
     }
 
     private fun seekBy(seconds: Int) {
@@ -231,8 +236,8 @@ class PlayerActivity : Activity() {
         pendingSeek += seconds * 1000L
         val target = (p.currentPosition + pendingSeek).coerceIn(0, maxOf(0, p.duration))
         showOsd((if (pendingSeek > 0) "+" else "−") + (Math.abs(pendingSeek) / 1000) + " s  ·  " + fmt(target))
-        OnyxApp.main.removeCallbacks(applySeek)
-        OnyxApp.main.postDelayed(applySeek, 450)
+        main.removeCallbacks(applySeek)
+        main.postDelayed(applySeek, 450)
     }
 
     private fun toggle() {
@@ -305,7 +310,7 @@ class PlayerActivity : Activity() {
             error?.let { o.put("error", it) }
             reported = true
         }
-        MainActivity.emit("onyx-player", o.toString())
+        events?.invoke("onyx-player", o.toString())
     }
 
     override fun onPause() {
@@ -320,8 +325,8 @@ class PlayerActivity : Activity() {
     }
 
     private fun close() {
-        OnyxApp.main.removeCallbacks(ticker)
-        OnyxApp.main.removeCallbacks(applySeek)
+        main.removeCallbacks(ticker)
+        main.removeCallbacks(applySeek)
         report(true)
         player?.release()
         player = null

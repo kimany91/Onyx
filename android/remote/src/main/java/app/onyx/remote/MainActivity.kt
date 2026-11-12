@@ -2,7 +2,6 @@ package app.onyx.remote
 
 import android.annotation.SuppressLint
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -11,72 +10,68 @@ import android.os.Build
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
-import android.view.View
 import android.webkit.JavascriptInterface
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
+import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
-import android.widget.TextView
 import android.widget.Toast
+import androidx.webkit.WebViewAssetLoader
+import app.onyx.core.PlayerActivity
 import app.onyx.core.Updater
 import com.google.zxing.client.android.Intents
-import com.journeyapps.barcodescanner.ScanOptions
 import com.journeyapps.barcodescanner.CaptureActivity
+import com.journeyapps.barcodescanner.ScanOptions
+import org.json.JSONObject
 
 /**
- * Onyx Remote : scanne le QR code affiché par la TV puis devient
- * une télécommande (l'interface est servie directement par la TV).
+ * Onyx (téléphone) : fonctionne seul — parcourir et regarder sur le téléphone —
+ * et peut en plus se connecter à la TV (QR code) pour la piloter ou y lancer un film.
  */
 class MainActivity : Activity() {
 
     private lateinit var web: WebView
-    private lateinit var welcome: View
-    private lateinit var error: View
-    private lateinit var errorText: TextView
     private val prefs by lazy { getSharedPreferences("onyx", Context.MODE_PRIVATE) }
     private var updateChecked = false
 
-    companion object { const val SCAN = 42 }
+    companion object {
+        const val SCAN = 42
+        const val HOME = "https://appassets.androidplatform.net/assets/web/remote/index.html"
+    }
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_main)
-        web = findViewById(R.id.web)
-        welcome = findViewById(R.id.welcome)
-        error = findViewById(R.id.error)
-        errorText = findViewById(R.id.errorText)
-        findViewById<TextView>(R.id.version).text = "Version " + BuildConfig.VERSION_NAME
-
-        findViewById<Button>(R.id.scanBtn).setOnClickListener { scan() }
-        findViewById<Button>(R.id.retryBtn).setOnClickListener { loadTv() }
-        findViewById<Button>(R.id.rescanBtn).setOnClickListener { scan() }
-
+        val loader = WebViewAssetLoader.Builder()
+            .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            .build()
+        web = WebView(this)
         web.setBackgroundColor(Color.parseColor("#050506"))
         with(web.settings) {
             javaScriptEnabled = true
             domStorageEnabled = true
             mediaPlaybackRequiresUserGesture = false
-            userAgentString = "$userAgentString OnyxRemote/${BuildConfig.VERSION_NAME}"
+            // la TV répond en http sur le réseau local
+            mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            userAgentString = "$userAgentString OnyxPhone/${BuildConfig.VERSION_NAME}"
         }
         web.addJavascriptInterface(Bridge(), "OnyxPhone")
         web.webViewClient = object : WebViewClient() {
-            override fun onReceivedError(view: WebView, request: WebResourceRequest, err: WebResourceError) {
-                if (request.isForMainFrame) showError()
-            }
+            override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
+                loader.shouldInterceptRequest(request.url)
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
-                val tv = prefs.getString("tv", null) ?: return false
-                if (request.url.host == Uri.parse(tv).host) return false
+                if (request.url.host == "appassets.androidplatform.net") return false
                 try { startActivity(Intent(Intent.ACTION_VIEW, request.url)) } catch (_: Exception) { }
                 return true
             }
         }
+        setContentView(web)
+        PlayerActivity.events = { name, json -> emit(name, json) }
 
-        // Lien direct (QR code scanné avec l'appareil photo puis « ouvrir avec Onyx Remote »)
-        intent?.data?.let { if (accept(it.toString())) return }
-        if (prefs.getString("tv", null) == null) showWelcome() else loadTv()
+        // Lien direct (QR code scanné avec l'appareil photo puis « ouvrir avec Onyx »)
+        intent?.data?.let { accept(it.toString()) }
+        web.loadUrl(HOME)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -86,6 +81,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        PlayerActivity.events = { name, json -> emit(name, json) }
         Updater.resumePending(this)
         if (!updateChecked) {
             updateChecked = true
@@ -95,19 +91,10 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showWelcome() {
-        welcome.visibility = View.VISIBLE; error.visibility = View.GONE; web.visibility = View.INVISIBLE
-    }
-
-    private fun showError() {
-        welcome.visibility = View.GONE; error.visibility = View.VISIBLE; web.visibility = View.INVISIBLE
-        errorText.text = "Impossible de joindre la TV.\nVérifie que l'app Onyx est ouverte sur la TV et que ton téléphone est sur le même Wi-Fi."
-    }
-
-    private fun loadTv() {
-        val tv = prefs.getString("tv", null) ?: return showWelcome()
-        welcome.visibility = View.GONE; error.visibility = View.GONE; web.visibility = View.VISIBLE
-        web.loadUrl(tv)
+    private fun emit(event: String, json: String) {
+        runOnUiThread {
+            web.evaluateJavascript("window.dispatchEvent(new CustomEvent('$event',{detail:${JSONObject.quote(json)}}))", null)
+        }
     }
 
     private fun scan() {
@@ -134,21 +121,43 @@ class MainActivity : Activity() {
         if (u.getQueryParameter("token").isNullOrEmpty() || u.path?.contains("remote") != true) return false
         prefs.edit().putString("tv", u.toString()).apply()
         Toast.makeText(this, "TV connectée ✓", Toast.LENGTH_SHORT).show()
-        loadTv()
+        emit("onyx-tv", JSONObject().put("url", u.toString()).toString())
         return true
     }
 
     @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
-        if (web.visibility == View.VISIBLE && web.canGoBack()) web.goBack()
+        if (web.canGoBack()) web.goBack()
         else @Suppress("DEPRECATION") super.onBackPressed()
     }
 
     inner class Bridge {
+        @JavascriptInterface fun version(): String = BuildConfig.VERSION_NAME
+
         @JavascriptInterface fun deviceName(): String {
             val m = Build.MODEL ?: "Téléphone"
             val brand = (Build.MANUFACTURER ?: "").replaceFirstChar { it.uppercase() }
             return if (m.startsWith(brand, true)) m else "$brand $m".trim()
+        }
+
+        @JavascriptInterface fun tvUrl(): String? = prefs.getString("tv", null)
+
+        @JavascriptInterface fun forgetTv() { prefs.edit().remove("tv").apply() }
+
+        @JavascriptInterface fun scan() { runOnUiThread { this@MainActivity.scan() } }
+
+        @JavascriptInterface fun play(json: String): Boolean {
+            runOnUiThread { startActivity(Intent(this@MainActivity, PlayerActivity::class.java).putExtra("json", json)) }
+            return true
+        }
+
+        @JavascriptInterface fun openExternal(url: String, mime: String?): Boolean {
+            return try {
+                val i = Intent(Intent.ACTION_VIEW)
+                if (!mime.isNullOrEmpty()) i.setDataAndType(Uri.parse(url), mime) else i.data = Uri.parse(url)
+                startActivity(if (!mime.isNullOrEmpty()) Intent.createChooser(i, "Ouvrir avec") else i)
+                true
+            } catch (_: Exception) { false }
         }
 
         @JavascriptInterface fun vibrate(ms: Int) {
@@ -158,16 +167,6 @@ class MainActivity : Activity() {
                 if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(ms.toLong(), VibrationEffect.DEFAULT_AMPLITUDE))
                 else @Suppress("DEPRECATION") v.vibrate(ms.toLong())
             } catch (_: Exception) { }
-        }
-
-        @JavascriptInterface fun scan() { runOnUiThread { this@MainActivity.scan() } }
-
-        @JavascriptInterface fun forget() {
-            runOnUiThread {
-                AlertDialog.Builder(this@MainActivity).setTitle("Oublier cette TV ?")
-                    .setPositiveButton("Oublier") { _, _ -> prefs.edit().remove("tv").apply(); showWelcome() }
-                    .setNegativeButton("Annuler", null).show()
-            }
         }
     }
 }

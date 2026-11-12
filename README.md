@@ -6,7 +6,7 @@ Contrôlable à la télécommande de la TV **ou** depuis ton téléphone (app *O
 | Composant | Fichier | Rôle |
 |---|---|---|
 | App TV | `onyx-tv.apk` | Android TV / Google TV (TV Onyx) |
-| App téléphone | `onyx-remote.apk` | Télécommande + lancer un film depuis le téléphone |
+| App téléphone | `onyx-remote.apk` | Regarder sur le téléphone, ou piloter la TV et y lancer un film |
 | Windows | `Onyx-Setup.exe` / `Onyx-Portable.exe` | Tester l'app TV sur PC |
 
 Les fichiers sont générés automatiquement à chaque modification et publiés dans
@@ -30,13 +30,20 @@ envoie `onyx-tv.apk` du téléphone vers la TV.
 
 Onyx apparaît ensuite dans la liste des applications de la TV (bannière **ONYX**).
 
-## 2. Connecter le téléphone
+## 2. L'app téléphone (avec ou sans TV)
 
-1. Installe `onyx-remote.apk` sur ton téléphone Android (autorise l'installation depuis le navigateur / fichiers).
-2. Sur la TV : menu de gauche › **Connexions** → un QR code s'affiche.
-3. Dans *Onyx Remote* : **Scanner le QR code de la TV**.
+Installe `onyx-remote.apk` sur ton téléphone Android (autorise l'installation depuis le navigateur / fichiers).
+L'app s'appelle **Onyx** et fonctionne **toute seule, sans TV** :
+- onglet *Explorer* : catalogues, recherche, fiches, saisons/épisodes, sources ;
+- lecture directement sur le téléphone avec le même lecteur que la TV (MKV, HEVC, sous-titres), reprise là où tu t'es arrêté ;
+- onglet *Addons* : ses propres addons, ajout par URL, connexion au compte Stremio.
 
-Le téléphone et la TV doivent être sur le **même Wi-Fi**. Depuis le téléphone tu peux :
+**Connecter la TV (optionnel)**
+1. Sur la TV : menu de gauche › **Connexions** → un QR code s'affiche.
+2. Dans l'app téléphone : **Scanner le QR code de la TV** (onglet *Télécommande* ou *Addons*).
+
+Une fois la TV connectée, chaque source propose **« Regarder sur ce téléphone »** ou **« Lire sur la TV »**.
+Le téléphone et la TV doivent être sur le **même Wi-Fi**. Depuis le téléphone tu peux aussi :
 - utiliser le pavé directionnel / OK / Retour / Lecture-Pause, avancer/reculer ;
 - **chercher un film et le lancer directement sur la TV** sans toucher la télécommande ;
 - taper du texte sur la TV, ajouter des addons, connecter ton compte Stremio.

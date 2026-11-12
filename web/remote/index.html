@@ -17,6 +17,11 @@
   <main>
     <!-- Télécommande -->
     <section class="tab active" id="tab-remote">
+      <div id="noTv" class="no-tv" style="display:none">
+        <p>Aucune TV connectée.</p>
+        <p class="hint">Sur la TV, ouvre <b>Onyx › Connexions</b> puis scanne le QR code pour transformer ce téléphone en télécommande.</p>
+        <button class="btn primary wide" onclick="window.OnyxPhone && OnyxPhone.scan()">Scanner le QR code de la TV</button>
+      </div>
       <div class="pad">
         <button class="pad-btn up" data-key="up" aria-label="Haut"></button>
         <button class="pad-btn right" data-key="right" aria-label="Droite"></button>

@@ -3,6 +3,7 @@ package app.onyx.tv
 import android.app.Application
 import android.os.Handler
 import android.os.Looper
+import app.onyx.core.PlayerActivity
 import org.json.JSONObject
 
 class OnyxApp : Application() {
@@ -19,6 +20,7 @@ class OnyxApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
+        PlayerActivity.events = { name, json -> MainActivity.emit(name, json) }
     }
 
     /** Démarre le serveur de connexion (ports 8765 à 8775). */
