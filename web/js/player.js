@@ -38,8 +38,8 @@
     var loading = Onyx.loader({ meta: meta, video: video, label: epLabel(video), videoId: videoId });
     // sous-titres en parallèle : aucune attente supplémentaire au lancement
     var subsP = withTimeout(S.subtitles(type, videoId, {}), 4000, []);
-    var itemsP = opts.items ? Promise.resolve(opts.items) : S.collect(type, videoId, function (n, done, total, el) {
-      loading.stage(0, 'Recherche des sources', done + '/' + total + ' addons ont répondu' + (n ? ' · ' + n + ' fichiers' : '') + (el > 4000 && done < total ? ' · ' + Math.round(el / 1000) + ' s' : ''), done / Math.max(1, total) * 25);
+    var itemsP = opts.items ? Promise.resolve(opts.items) : S.collect(type, videoId, function (n, done, total, el, x) {
+      loading.stage(0, 'Recherche des sources', S.collectText(n, done, total, el, x), (x ? x.frac : done / Math.max(1, total)) * 25);
     });
     itemsP.then(function (items) {
       if (loading.cancelled) return;
@@ -370,7 +370,15 @@
     video.addEventListener('waiting', function () { spinner.classList.add('show'); });
     var loader = ctx.loader, started = false;
     if (loader) loader.stage(2, 'Connexion à la source', 'Connexion au serveur…', 48);
+    // compteur de secondes réel tant que le serveur n'a rien envoyé
+    var connT0 = Date.now(), gotData = false;
+    var connTick = setInterval(function () {
+      if (started || gotData || !loader || !video.isConnected) { clearInterval(connTick); return; }
+      var secs = Math.floor((Date.now() - connT0) / 1000);
+      loader.stage(2, 'Connexion à la source', 'Connexion au serveur… ' + secs + ' s', 48 + Math.min(secs, 10) * .8);
+    }, 500);
     var bufProg = function () {
+      if (video.buffered.length) gotData = true;
       if (started || !loader) return;
       var b = video.buffered.length ? video.buffered.end(video.buffered.length - 1) - video.currentTime : 0;
       loader.stage(3, 'Mise en mémoire', 'Réception de la vidéo…', 60 + Math.min(1, Math.max(0, b) / 2) * 40);

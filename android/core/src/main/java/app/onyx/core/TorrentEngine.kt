@@ -396,17 +396,30 @@ object TorrentEngine {
             val size = ti.files().fileSize(e.fileIndex).toDouble()
             if (size > 0) done = e.handle!!.fileProgress()[e.fileIndex] / size
         } catch (_: Exception) { }
-        // part du début (8 Mo) et de la fin (4 Mo) du fichier déjà reçue : ce qu'il faut pour démarrer
-        var head = 0.0
+        // part du début (8 Mo) et de la fin (4 Mo) du fichier déjà reçue : ce qu'il faut pour démarrer.
+        // Compté au bloc près (16 ko), y compris les pièces en cours : la progression avance en continu.
+        var head = 0.0; var headHave = 0L; var headNeed = 0L
         if (ti != null) try {
             val th = e.handle!!
             val fs = ti.files(); val pl = ti.pieceLength().toLong()
             val fStart = fs.fileOffset(e.fileIndex); val fSize = fs.fileSize(e.fileIndex)
-            val ps = ArrayList<Int>()
+            val ps = LinkedHashSet<Int>()
             for (p in (fStart / pl).toInt()..((fStart + minOf(fSize, 8L * 1024 * 1024)) / pl).toInt()) ps.add(p)
-            for (p in ((fStart + maxOf(0, fSize - 4L * 1024 * 1024)) / pl).toInt()..((fStart + fSize - 1) / pl).toInt()) if (p !in ps) ps.add(p)
-            head = ps.count { th.havePiece(it) }.toDouble() / maxOf(1, ps.size)
+            for (p in ((fStart + maxOf(0, fSize - 4L * 1024 * 1024)) / pl).toInt()..((fStart + fSize - 1) / pl).toInt()) ps.add(p)
+            val partial = HashMap<Int, Double>()
+            try {
+                for (q in th.getDownloadQueue()) {
+                    val n = maxOf(1, q.blocksInPiece())
+                    partial[q.pieceIndex()] = (q.finished() + q.writing()).toDouble() / n
+                }
+            } catch (_: Exception) { }
+            var have = 0.0
+            for (p in ps) have += if (th.havePiece(p)) 1.0 else (partial[p] ?: 0.0)
+            head = have / maxOf(1, ps.size)
+            headNeed = ps.size * pl
+            headHave = (head * headNeed).toLong()
         } catch (_: Exception) { }
+        o.put("headHave", headHave).put("headNeed", headNeed)
         return o.put("state", "downloading").put("progress", done).put("head", head)
     }
 

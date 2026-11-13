@@ -387,27 +387,50 @@
 
   /* Récupère les sources de tous les addons : rend la main dès que c'est suffisant.
      Certains addons (Comet…) mettent 15-30 s à chercher : tant qu'on n'a rien, on les attend. */
+  /* onProgress(nFichiers, addonsRépondus, addonsTotal, msÉcoulées, { frac, pending })
+     frac : avancement réel vers la fin de la recherche (réponses reçues et délai maximal connu) */
   S.collect = function (type, id, onProgress) {
     return new Promise(function (resolve) {
-      var items = [], done = false, settleT = null;
+      var items = [], done = false, settleT = null, firstAt = 0;
       var addons = S.streamAddons(type, id);
       if (!addons.length) return resolve(items);
-      var left = addons.length, t0 = Date.now();
+      var left = addons.length, t0 = Date.now(), answered = [];
       function finish() { if (!done) { done = true; clearTimeout(settleT); clearInterval(tick); resolve(items); } }
+      function report() {
+        if (!onProgress || done) return;
+        var el = Date.now() - t0, n = addons.length - left;
+        // tant que rien n'est arrivé, on avance vers la limite de 45 s (courbe douce : plus rapide au début)
+        var byTime = items.length ? el / Math.min(12000, firstAt + 2500) : Math.sqrt(el / 45000);
+        var frac = Math.min(0.99, Math.max(n / addons.length, byTime));
+        var pending = addons.filter(function (a) { return answered.indexOf(a) < 0; }).map(function (a) { return (a.manifest && a.manifest.name) || 'addon'; });
+        onProgress(items.length, n, addons.length, el, { frac: frac, pending: pending });
+      }
       var tick = setInterval(function () {
         var el = Date.now() - t0;
         if (el > 45000 || (items.length && el > 12000)) finish();
-        else if (onProgress) onProgress(items.length, addons.length - left, addons.length, el);
-      }, 1000);
+        else report();
+      }, 500);
       S.streams(type, id, function (res) {
         var idx = addons.indexOf(res.addon);
         res.streams.forEach(function (s, i) { items.push({ addon: res.addon, stream: s, info: S.streamInfo(s), addonIndex: idx, index: i }); });
+        answered.push(res.addon);
         left--;
-        if (onProgress) onProgress(items.length, addons.length - left, addons.length, Date.now() - t0);
+        if (items.length && !firstAt) firstAt = Date.now() - t0;
+        report();
         if (!left) return finish();
         if (items.length && !settleT) settleT = setTimeout(finish, 2500);
       });
     });
+  };
+  /* Texte de l'étape « Recherche des sources » */
+  S.collectText = function (n, done, total, el, x) {
+    var pend = (x && x.pending) || [];
+    var parts = [];
+    if (pend.length && done < total) parts.push('En attente de ' + pend.slice(0, 2).join(', ') + (pend.length > 2 ? '…' : ''));
+    else parts.push(done + '/' + total + ' addons');
+    parts.push(n + (n > 1 ? ' fichiers trouvés' : ' fichier trouvé'));
+    parts.push(Math.floor(el / 1000) + ' s');
+    return parts.join(' · ');
   };
 
   /* ---------- Torrents vivants ----------
@@ -445,7 +468,9 @@
         var hs = S.health(hashes), el = Date.now() - t0;
         var ok = hashes.filter(function (h) { return alive(hs[h]); });
         var dht = 0; hashes.forEach(function (h) { dht = Math.max(dht, (hs[h] && hs[h].dht) || 0); });
-        if (onStatus) onStatus('Vérification des sources', ok.length + '/' + hashes.length + ' sources actives' + (dht ? '' : ' · connexion au réseau'), Math.min(1, el / 2500));
+        // avancement réel : vers 2,5 s dès qu'une source répond, sinon vers la limite de 14 s
+        var frac = ok.length ? Math.min(1, el / 2500) : Math.min(1, el / 14000);
+        if (onStatus) onStatus('Vérification des sources', ok.length + '/' + hashes.length + ' sources actives' + (dht ? '' : ' · connexion au réseau') + ' · ' + Math.floor(el / 1000) + ' s', frac);
         // favori vivant → on y va ; sinon on laisse quelques secondes aux autres
         // on laisse ~1,5 s pour comparer le nombre de pairs (plus de pairs = téléchargement plus rapide)
         var done = (ok.length && alive(hs[hashes[0]]) && el > 1500) || (ok.length && el > 2500) || el > 14000;

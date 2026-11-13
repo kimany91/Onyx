@@ -78,6 +78,9 @@ class PlayerActivity : Activity() {
     private var preparing = false
     private var torrentHash: String? = null
     private var loadStart = 0L
+    /** Octets réellement reçus par le lecteur (sources directes) et débit mesuré. */
+    @Volatile private var rxBytes = 0L
+    private var rxLast = 0L; private var rxAt = 0L; private var rxSpeed = 0
     private var everReady = false
     private var failedOnce = false
     /** Affiche l'état du chargement et passe à une autre source si rien ne vient. */
@@ -92,26 +95,46 @@ class PlayerActivity : Activity() {
                     val st = TorrentEngine.stats(h)
                     val peers = st.optInt("peers"); val speed = st.optInt("speed")
                     val seeds = st.optInt("seeds"); val dht = st.optInt("dht")
-                    val txt = when (st.optString("state")) {
-                        "starting", "metadata" -> "Connexion aux pairs… $peers connecté(s)" + (if (seeds > 0) " · $seeds sources" else "") +
-                            (if (peers == 0 && dht == 0 && secs > 8) " · réseau DHT injoignable" else "")
-                        "error" -> "Erreur torrent : " + st.optString("error")
-                        else -> "$peers pairs · " + fmtSpeed(speed) + " · " + (st.optDouble("progress") * 100).toInt() + " %"
-                    }
-                    showStatus(txt)
+                    val state = st.optString("state")
                     if (!everReady) {
+                        // avant la première image : tout va sur l'écran de chargement, avec des chiffres réels
                         val buf = bufferFraction(p)
-                        if (st.optString("state") == "downloading") loading.setStage(3, "Mise en mémoire", null, 60f + st.optDouble("head").toFloat() * 30f + buf * 10f)
-                        else loading.setStage(2, "Connexion aux pairs", null, 45f + minOf(peers, 10) * 1.2f)
+                        when (state) {
+                            "downloading" -> {
+                                val head = st.optDouble("headHave", 0.0).toFloat() / maxOf(1f, st.optDouble("headNeed", 1.0).toFloat())
+                                val need = st.optLong("headNeed")
+                                val det = (if (head < 1f && need > 0) fmtBytes(st.optLong("headHave")) + " / " + fmtBytes(need) else "Lecture du début du film") +
+                                    " · " + fmtSpeed(speed) + " · $peers pairs"
+                                loading.setStage(3, "Mise en mémoire", det, 60f + minOf(1f, head) * 30f + buf * 10f)
+                            }
+                            "error" -> loading.setDetail("Erreur torrent : " + st.optString("error"))
+                            else -> {
+                                val det = (if (peers > 0) "$peers pairs connectés" else "Recherche de pairs") +
+                                    (if (seeds > 0) " · $seeds sources" else "") +
+                                    (if (state == "metadata" && peers > 0) " · informations du fichier" else "") +
+                                    (if (peers == 0 && dht == 0 && secs > 8) " · réseau DHT injoignable" else "") + " · $secs s"
+                                loading.setStage(2, "Connexion aux pairs", det, 45f + minOf(peers, 8) * 1.2f + (if (st.optBoolean("metadata")) 4f else 0f))
+                            }
+                        }
+                    } else {
+                        showStatus(when (state) {
+                            "error" -> "Erreur torrent : " + st.optString("error")
+                            "downloading" -> "$peers pairs · " + fmtSpeed(speed) + " · " + (st.optDouble("progress") * 100).toInt() + " %"
+                            else -> "Connexion aux pairs… $peers connecté(s)"
+                        })
                     }
                     // les sources sont vérifiées avant la lecture : si celle-ci reste muette, on passe vite à la suivante
-                    if (!everReady && ((peers == 0 && seeds <= 0 && secs > 30) || secs > 120 || st.optString("state") == "error")) {
+                    if (!everReady && ((peers == 0 && seeds <= 0 && secs > 20) || secs > 120 || state == "error")) {
                         fail(if (peers == 0) "aucun pair pour ce torrent" else "torrent trop lent"); return
                     }
                 } else {
                     if (!everReady) {
-                        if (p.bufferedPosition > 0) loading.setStage(3, "Mise en mémoire", "Réception de la vidéo…", 60f + bufferFraction(p) * 40f)
-                        else loading.setStage(2, "Connexion à la source", "Connexion au serveur…", 50f)
+                        val rx = rxBytes
+                        val now = System.currentTimeMillis()
+                        if (now - rxAt >= 1000) { rxSpeed = ((rx - rxLast) * 1000 / maxOf(1, now - rxAt)).toInt(); rxLast = rx; rxAt = now }
+                        if (rx > 0) loading.setStage(3, "Mise en mémoire", fmtBytes(rx) + " reçus · " + fmtSpeed(rxSpeed),
+                            60f + minOf(1f, rx / (6f * 1024 * 1024)) * 25f + bufferFraction(p) * 15f)
+                        else loading.setStage(2, "Connexion à la source", "Connexion au serveur… $secs s", 50f + minOf(secs.toFloat(), 10f) * .5f)
                     }
                     showStatus(if (everReady) "Chargement…" else null)
                     if (!everReady && secs > 35) { fail("la source ne répond pas"); return }
@@ -269,6 +292,7 @@ class PlayerActivity : Activity() {
         player?.release()
         val headers = HashMap<String, String>()
         o.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> headers[k] = h.optString(k) } }
+        rxBytes = 0L; rxLast = 0L; rxAt = System.currentTimeMillis(); rxSpeed = 0
         torrentHash = Regex("^http://127\\.0\\.0\\.1:\\d+/stream/([0-9a-f]{40})").find(url)?.groupValues?.get(1)
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent(headers.remove("User-Agent") ?: "Mozilla/5.0 (Linux; Android) Onyx")
@@ -276,6 +300,12 @@ class PlayerActivity : Activity() {
             .setConnectTimeoutMs(15000).setReadTimeoutMs(if (torrentHash != null) 180000 else 30000)
             .setKeepPostFor302Redirects(true)
             .setDefaultRequestProperties(headers)
+            .setTransferListener(object : androidx.media3.datasource.TransferListener {
+                override fun onTransferInitializing(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) { }
+                override fun onTransferStart(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) { }
+                override fun onBytesTransferred(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean, bytesTransferred: Int) { rxBytes += bytesTransferred }
+                override fun onTransferEnd(source: androidx.media3.datasource.DataSource, dataSpec: androidx.media3.datasource.DataSpec, isNetwork: Boolean) { }
+            })
         // peu de nouvelles tentatives : si la source ne marche pas, on passe vite à la suivante
         val sourceFactory = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
             .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(2))
@@ -478,6 +508,12 @@ class PlayerActivity : Activity() {
     fun jsProgress(o: JSONObject) {
         if (!preparing && player != null) return
         loading.setStage(o.optInt("stage"), o.optString("label"), o.optString("detail").ifEmpty { null }, o.optDouble("pct").toFloat())
+    }
+
+    private fun fmtBytes(b: Long): String = when {
+        b >= 1024L * 1024 * 1024 -> String.format("%.1f Go", b / 1073741824.0)
+        b >= 1024 * 1024 -> String.format("%.1f Mo", b / 1048576.0)
+        else -> (b / 1024).toString() + " ko"
     }
 
     private fun fmtSpeed(b: Int): String = when {

@@ -154,8 +154,8 @@
     var prefs = S.prefs.forShow(meta.id);
     var loading = Onyx.loader({ meta: meta, video: video, label: epLabel(video), videoId: vid });
     var subsP = withTimeout(S.subtitles(meta.type, vid, {}), 4000, []);
-    S.collect(meta.type, vid, function (n, done, total, el) {
-      loading.stage(0, 'Recherche des sources', done + '/' + total + ' addons ont répondu' + (n ? ' · ' + n + ' fichiers' : '') + (el > 4000 && done < total ? ' · ' + Math.round(el / 1000) + ' s' : ''), done / Math.max(1, total) * 25);
+    S.collect(meta.type, vid, function (n, done, total, el, x) {
+      loading.stage(0, 'Recherche des sources', S.collectText(n, done, total, el, x), (x ? x.frac : done / Math.max(1, total)) * 25);
     }).then(function (items) {
       if (loading.cancelled) return;
       if (!items.length) { loading.close('aucune source trouvée'); toast('Aucune source trouvée avec tes addons'); return; }
