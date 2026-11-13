@@ -154,8 +154,8 @@
     var prefs = S.prefs.forShow(meta.id);
     var loading = loadingSheet(meta, video);
     var subsP = withTimeout(S.subtitles(meta.type, vid, {}), 4000, []);
-    S.collect(meta.type, vid, function (n, done, total) {
-      loading.status('Recherche des sources… ' + done + '/' + total + (n ? ' · ' + n + ' fichiers' : ''));
+    S.collect(meta.type, vid, function (n, done, total, el) {
+      loading.status('Recherche des sources… ' + done + '/' + total + ' addons' + (n ? ' · ' + n + ' fichiers' : '') + (el > 4000 ? ' · ' + Math.round(el / 1000) + ' s' : ''));
     }).then(function (items) {
       if (loading.cancelled) return;
       if (!items.length) { loading.close(); toast('Aucune source trouvée avec tes addons'); return; }
@@ -170,8 +170,14 @@
         }
       }
       cur = { meta: meta, video: video || null, vid: vid, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt, subsP: subsP };
+      var ctx = cur;
       if (!meta.videos && meta.type === 'series') S.meta(meta.type, meta.id).then(function (m) { if (cur && cur.meta === meta) cur.meta = m; }, function () { });
-      startPhone(cur, 0, loading);
+      // torrents : on vérifie lesquels ont vraiment des pairs avant de lancer
+      (opts.stream ? Promise.resolve(ranked) : S.pickHealthy(ranked, loading.status)).then(function (r) {
+        if (loading.cancelled) return;
+        ctx.ranked = r;
+        startPhone(ctx, 0, loading);
+      });
     });
   }
 
@@ -208,7 +214,9 @@
           url: res.url, headers: res.headers || null, title: ctx.meta.name || '', subtitle: epLabel(v),
           subtitles: S.pickSubtitles(subs, ctx.prefs), startAt: Math.floor(startAt * 1000), videoId: ctx.vid,
           audioLang: ctx.prefs.audio, subLang: ctx.prefs.subs, subtitlesAuto: ctx.prefs.subs !== 'off',
-          deviceLang: S.deviceLang(), menu: menu
+          deviceLang: S.deviceLang(), menu: menu,
+          background: ctx.meta.background || (/^tt/.test(ctx.meta.id) ? 'https://images.metahub.space/background/medium/' + ctx.meta.id + '/img' : ''),
+          poster: ctx.meta.poster || ''
         }));
       });
     }).catch(function () { if (!(loading && loading.cancelled)) startPhone(ctx, i + 1, loading); });
@@ -244,8 +252,10 @@
         .sort(function (a, b) { return (a.season - b.season) || ((a.episode || a.number) - (b.episode || b.number)); });
       var ni = nvs.findIndex(function (v) { return v.id === ctx.vid; });
       if (ni >= 0 && nvs[ni + 1]) S.collect(ctx.meta.type, nvs[ni + 1].id).then(function (items) {
-        var best = items.length && S.rank(items, ctx.prefs)[0];
-        if (best && best.info.kind === 'torrent') S.prepare(best.stream);
+        if (!items.length) return;
+        S.pickHealthy(S.rank(items, ctx.prefs)).then(function (r) {
+          if (r[0] && r[0].info.kind === 'torrent') S.prepare(r[0].stream);
+        });
       });
     }
     if (d.failed) {
@@ -550,8 +560,10 @@
       if (LOCAL && S.hasTorrentEngine()) {
         var t = target();
         S.collect(full.type, vidOf(full, t)).then(function (items) {
-          var best = items.length && S.rank(items, S.prefs.forShow(full.id))[0];
-          if (best && best.info.kind === 'torrent') S.prepare(best.stream);
+          if (!items.length) return;
+          S.pickHealthy(S.rank(items, S.prefs.forShow(full.id))).then(function (r) {
+            if (r[0] && r[0].info.kind === 'torrent') S.prepare(r[0].stream);
+          });
         });
       }
     }).catch(function () { });

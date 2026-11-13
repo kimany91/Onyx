@@ -79,7 +79,16 @@ Lecture « comme Netflix » (TV, téléphone et PC) :
 - dès qu'une fiche est ouverte, Onyx **précharge** la meilleure source (début + fin seulement), donc
   « Lecture » démarre quasi instantanément ; l'épisode suivant est préchargé à 85 % de l'épisode en cours ;
 - en « Auto », Onyx vise le 1080p pour les torrents (démarrage bien plus rapide qu'un 4K de 15 Go) ;
+- Comet liste beaucoup de torrents « morts » (sans personne pour les partager) : avant de lancer, Onyx
+  **teste jusqu'à 8 torrents en parallèle** (1 à 3 s) et lance le mieux classé qui a vraiment des sources ;
+- les addons lents (Comet met parfois 15-30 s à chercher) sont attendus au lieu d'afficher « aucune source » ;
+- trackers publics à jour (ngosang/trackerslist) chargés au démarrage, réseau DHT mémorisé d'un lancement
+  à l'autre (les pairs sont trouvés en quelques secondes) ;
+- pendant la connexion, écran de chargement avec l'affiche, le titre et l'état (pairs, débit) au lieu d'un écran noir ;
 - si une source n'a pas de pairs ou ne répond pas, Onyx passe automatiquement à la suivante ;
+- **taille des fichiers** : seuls le début et la fin sont nécessaires pour démarrer, donc un film de 10 Go
+  démarre aussi vite qu'un de 1 Go. Par contre, regarder tout le film occupe sa taille sur l'appareil
+  (vidé au film suivant) : Onyx évite les fichiers plus gros que l'espace libre quand une autre version existe ;
 - pendant le chargement, le lecteur affiche les pairs connectés, le débit et la progression.
 
 Avec un compte **debrid** (Real-Debrid, AllDebrid, TorBox…) configuré dans Comet / Torrentio, les fichiers

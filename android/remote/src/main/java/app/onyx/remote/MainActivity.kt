@@ -163,6 +163,18 @@ class MainActivity : Activity() {
             TorrentEngine.prepare(hash, fileIdx?.toIntOrNull() ?: -1, filename, TorrentEngine.parseSources(sources))
         }
 
+        @JavascriptInterface fun torrentProbe(list: String?) {
+            TorrentEngine.init(applicationContext)
+            try { TorrentEngine.probe(org.json.JSONArray(list ?: "[]")) } catch (_: Exception) { }
+        }
+
+        @JavascriptInterface fun torrentHealth(hashes: String?): String =
+            try { TorrentEngine.health(org.json.JSONArray(hashes ?: "[]")).toString() } catch (_: Exception) { "{}" }
+
+        @JavascriptInterface fun torrentKeep(hashes: String?) {
+            try { val a = org.json.JSONArray(hashes ?: "[]"); TorrentEngine.keepOnly((0 until a.length()).map { a.getString(it) }) } catch (_: Exception) { }
+        }
+
         @JavascriptInterface fun torrentStats(hash: String): String = TorrentEngine.stats(hash).toString()
 
         @JavascriptInterface fun freeSpace(): String { TorrentEngine.init(applicationContext); return TorrentEngine.freeSpace().toString() }

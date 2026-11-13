@@ -38,8 +38,8 @@
     var loading = showLoading(meta, video);
     // sous-titres en parallèle : aucune attente supplémentaire au lancement
     var subsP = withTimeout(S.subtitles(type, videoId, {}), 4000, []);
-    var itemsP = opts.items ? Promise.resolve(opts.items) : S.collect(type, videoId, function (n, done, total) {
-      loading.status('Recherche des sources… ' + done + '/' + total + (n ? ' · ' + n + ' fichiers' : ''));
+    var itemsP = opts.items ? Promise.resolve(opts.items) : S.collect(type, videoId, function (n, done, total, el) {
+      loading.status('Recherche des sources… ' + done + '/' + total + ' addons' + (n ? ' · ' + n + ' fichiers' : '') + (el > 4000 ? ' · ' + Math.round(el / 1000) + ' s' : ''));
     });
     itemsP.then(function (items) {
       if (loading.cancelled) return;
@@ -62,7 +62,12 @@
         }
       }
       var ctx = { meta: Onyx.preview(meta), fullMeta: meta, type: type, videoId: videoId, video: video || null, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt, subsP: subsP };
-      start(ctx, 0, loading);
+      // torrents : on vérifie lesquels ont vraiment des pairs avant de lancer
+      (opts.stream ? Promise.resolve(ranked) : S.pickHealthy(ranked, loading.status)).then(function (r) {
+        if (loading.cancelled) return;
+        ctx.ranked = r;
+        start(ctx, 0, loading);
+      });
     });
   };
 
@@ -72,8 +77,9 @@
     var vid = videoIdOf(meta, video);
     S.collect(meta.type, vid).then(function (items) {
       if (!items.length) return;
-      var best = S.rank(items, S.prefs.forShow(meta.id))[0];
-      if (best && best.info.kind === 'torrent') S.prepare(best.stream);
+      S.pickHealthy(S.rank(items, S.prefs.forShow(meta.id))).then(function (r) {
+        if (r[0] && r[0].info.kind === 'torrent') S.prepare(r[0].stream);
+      });
     });
   };
 
@@ -144,7 +150,8 @@
         url: res.url, headers: res.headers || null, title: title, subtitle: sub, subtitles: subs,
         startAt: Math.floor(startAt * 1000), videoId: ctx.videoId,
         audioLang: ctx.prefs.audio, subLang: ctx.prefs.subs, subtitlesAuto: ctx.prefs.subs !== 'off',
-        deviceLang: S.deviceLang(), menu: menuFor(ctx)
+        deviceLang: S.deviceLang(), menu: menuFor(ctx),
+        background: Onyx.bgOf(ctx.fullMeta || ctx.meta) || '', poster: ctx.meta.poster || ''
       });
       pushState();
       return;

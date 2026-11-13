@@ -212,7 +212,7 @@
   S.streams = function (type, id, onAddon) {
     var list = S.streamAddons(type, id);
     return Promise.all(list.map(function (a) {
-      return S.fetchJSON(S.base(a) + '/stream/' + encodeURIComponent(type) + '/' + encodeURIComponent(id) + '.json', { ttl: 5 * 60 * 1000, timeout: 25000 })
+      return S.fetchJSON(S.base(a) + '/stream/' + encodeURIComponent(type) + '/' + encodeURIComponent(id) + '.json', { ttl: 10 * 60 * 1000, timeout: 45000 })
         .then(function (j) { var r = { addon: a, streams: (j && j.streams) || [] }; if (onAddon) onAddon(r); return r; })
         .catch(function (e) { var r = { addon: a, streams: [], error: e.message }; if (onAddon) onAddon(r); return r; });
     }));
@@ -385,23 +385,84 @@
     return false;
   };
 
-  /* Récupère les sources de tous les addons : rend la main dès que c'est suffisant */
+  /* Récupère les sources de tous les addons : rend la main dès que c'est suffisant.
+     Certains addons (Comet…) mettent 15-30 s à chercher : tant qu'on n'a rien, on les attend. */
   S.collect = function (type, id, onProgress) {
     return new Promise(function (resolve) {
       var items = [], done = false, settleT = null;
       var addons = S.streamAddons(type, id);
       if (!addons.length) return resolve(items);
-      var left = addons.length;
-      function finish() { if (!done) { done = true; clearTimeout(settleT); clearTimeout(maxT); resolve(items); } }
-      var maxT = setTimeout(finish, 12000);
+      var left = addons.length, t0 = Date.now();
+      function finish() { if (!done) { done = true; clearTimeout(settleT); clearInterval(tick); resolve(items); } }
+      var tick = setInterval(function () {
+        var el = Date.now() - t0;
+        if (el > 45000 || (items.length && el > 12000)) finish();
+        else if (onProgress) onProgress(items.length, addons.length - left, addons.length, el);
+      }, 1000);
       S.streams(type, id, function (res) {
         var idx = addons.indexOf(res.addon);
         res.streams.forEach(function (s, i) { items.push({ addon: res.addon, stream: s, info: S.streamInfo(s), addonIndex: idx, index: i }); });
         left--;
-        if (onProgress) onProgress(items.length, addons.length - left, addons.length);
+        if (onProgress) onProgress(items.length, addons.length - left, addons.length, Date.now() - t0);
         if (!left) return finish();
         if (items.length && !settleT) settleT = setTimeout(finish, 2500);
       });
+    });
+  };
+
+  /* ---------- Torrents vivants ----------
+     Comet & co listent beaucoup de torrents morts (0 pair). On en sonde plusieurs en parallèle
+     (presque sans débit) et on lance le mieux classé qui a vraiment des sources. */
+  function torrentKey(st) { return st && st.infoHash ? st.infoHash.toLowerCase() : null; }
+  function probeDesc(it) {
+    var st = it.stream, hb = st.behaviorHints || {};
+    return { hash: torrentKey(st), fileIdx: st.fileIdx === undefined || st.fileIdx === null ? -1 : Number(st.fileIdx), filename: hb.filename || '', sources: st.sources || [] };
+  }
+  S.health = function (hashes) {
+    var e = S.engine();
+    if (!e || typeof e.torrentHealth !== 'function' || !hashes.length) return {};
+    try { return JSON.parse(e.torrentHealth(JSON.stringify(hashes))) || {}; } catch (x) { return {}; }
+  };
+  function alive(h) { return h && h.state !== 'error' && h.state !== 'none' && ((h.seeds || 0) > 0 || (h.peers || 0) > 0 || h.metadata); }
+
+  S.pickHealthy = function (ranked, onStatus) {
+    var e = S.engine();
+    if (!e || typeof e.torrentProbe !== 'function') return Promise.resolve(ranked);
+    // seuls les torrents classés avant la première source directe comptent
+    var firstUrl = ranked.findIndex(function (x) { return x.info.kind === 'url'; });
+    var seen = {}, cands = [];
+    ranked.forEach(function (x, i) {
+      var k = torrentKey(x.stream);
+      if (!k || seen[k] || cands.length >= 8 || (firstUrl >= 0 && i > firstUrl)) return;
+      seen[k] = 1; cands.push(x);
+    });
+    if (!cands.length) return Promise.resolve(ranked);
+    try { e.torrentProbe(JSON.stringify(cands.map(probeDesc))); } catch (x) { }
+    var hashes = cands.map(function (x) { return torrentKey(x.stream); });
+    var t0 = Date.now();
+    return new Promise(function (resolve) {
+      (function poll() {
+        var hs = S.health(hashes), el = Date.now() - t0;
+        var ok = hashes.filter(function (h) { return alive(hs[h]); });
+        var dht = 0; hashes.forEach(function (h) { dht = Math.max(dht, (hs[h] && hs[h].dht) || 0); });
+        if (onStatus) onStatus('Vérification des sources… ' + ok.length + '/' + hashes.length + ' actives' + (dht ? '' : ' · connexion au réseau'));
+        // favori vivant → on y va ; sinon on laisse quelques secondes aux autres
+        var done = (ok.length && alive(hs[hashes[0]]) && el > 600) || (ok.length && el > 2500) || el > 14000;
+        if (!done) return setTimeout(poll, 500);
+        var bonus = {};
+        hashes.forEach(function (h) {
+          var x = hs[h] || {};
+          bonus[h] = alive(x) ? Math.min(40, Math.log((x.seeds || 0) + (x.peers || 0) + 1) / Math.LN2 * 6) : -300;
+        });
+        var out = ranked.map(function (x) {
+          var k = torrentKey(x.stream);
+          return { x: x, s: x.score + (k ? (k in bonus ? bonus[k] : -40) : 0) };
+        }).sort(function (a, b) { return b.s - a.s; }).map(function (o) { return o.x; });
+        // on garde les 3 meilleurs torrents vivants (secours immédiats), on libère les autres
+        var keep = out.map(function (x) { return torrentKey(x.stream); }).filter(function (k) { return k && alive(hs[k]); }).slice(0, 3);
+        try { if (typeof e.torrentKeep === 'function') e.torrentKeep(JSON.stringify(keep)); } catch (x) { }
+        resolve(out);
+      })();
     });
   };
 

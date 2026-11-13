@@ -33,31 +33,49 @@ import java.util.concurrent.TimeUnit
  */
 object TorrentEngine {
 
-    private val TRACKERS = listOf(
+    /** Trackers publics de secours (liste « best » de ngosang/trackerslist + HTTPS pour les réseaux qui bloquent l'UDP). */
+    private val DEFAULT_TRACKERS = listOf(
         "udp://tracker.opentrackr.org:1337/announce",
         "udp://open.stealth.si:80/announce",
         "udp://tracker.torrent.eu.org:451/announce",
-        "udp://exodus.desync.com:6969/announce",
         "udp://open.demonii.com:1337/announce",
-        "udp://explodie.org:6969/announce",
-        "udp://tracker.dler.org:6969/announce",
-        "udp://tracker.tiny-vps.com:6969/announce",
-        "udp://tracker.openbittorrent.com:6969/announce",
-        "udp://opentracker.io:6969/announce",
+        "udp://open.tracker.cl:1337/announce",
+        "udp://tracker.qu.ax:6969/announce",
+        "udp://tracker.ducks.party:1984/announce",
+        "udp://tracker-udp.gbitt.info:80/announce",
+        "udp://tracker.tryhackx.org:6969/announce",
         "udp://tracker.theoks.net:6969/announce",
-        "https://tracker.tamersunion.org:443/announce"
+        "udp://tracker.gmi.gd:6969/announce",
+        "udp://explodie.org:6969/announce",
+        "udp://exodus.desync.com:6969/announce",
+        "http://tracker.renfei.net:8080/announce",
+        "http://tracker.dler.org:6969/announce",
+        "http://tracker2.dler.org:80/announce",
+        "https://tracker.pmman.tech:443/announce",
+        "https://tracker.nekomi.cn:443/announce",
+        "https://tr.nyacat.pw:443/announce",
+        "https://open.ftorrent.com:443/announce"
     )
+    @Volatile private var trackers: List<String> = DEFAULT_TRACKERS
     private const val VIDEO_EXT = "mkv|mp4|avi|m4v|mov|webm|ts|m2ts|wmv|flv|mpg|mpeg"
 
+    /** Modes : sonde (a-t-il des pairs ?) < préchargement (début + fin) < lecture (tout le fichier). */
+    const val PROBE = 0
+    const val PREWARM = 1
+    const val STREAM = 2
+    private const val MAX_ENTRIES = 14
+
     class Entry(val hash: String, val fileHint: Int, val filename: String?, val trackers: List<String>) {
+        /** Poignée disponible dès l'ajout (avant les métadonnées). */
+        @Volatile var early: TorrentHandle? = null
         @Volatile var handle: TorrentHandle? = null
         @Volatile var info: TorrentInfo? = null
         @Volatile var fileIndex = -1
         @Volatile var error: String? = null
         @Volatile var lastUse = System.currentTimeMillis()
         @Volatile var cancelled = false
-        /** Préchargement seul : uniquement le début et la fin du fichier, pas le reste. */
-        @Volatile var prewarmOnly = false
+        @Volatile var mode = PROBE
+        @Volatile var trickleStarted = false
         /** Morceaux déjà rendus prioritaires (évite des milliers d'appels inutiles). */
         val prioritized: MutableSet<Int> = ConcurrentHashMap.newKeySet()
         val ready = CountDownLatch(1)
@@ -81,84 +99,199 @@ object TorrentEngine {
         dir = cache
         dir.deleteRecursively()
         dir.mkdirs()
+        // pas de file d'attente : tous les torrents (sondes, préchargements, lecture) tournent en même temps
         val sp = SettingsPack()
-            .connectionsLimit(200)
-            .activeDownloads(3)
-            .activeLimit(6)
-            .maxPeerlistSize(2000)
+            .connectionsLimit(300)
+            .activeDownloads(60)
+            .activeLimit(80)
+            .maxPeerlistSize(3000)
+        sp.setEnableDht(true)
+        sp.setEnableLsd(true)
+        sp.setMaxMetadataSize(16 * 1024 * 1024)
         sp.setString(settings_pack.string_types.dht_bootstrap_nodes.swigValue(),
             "dht.libtorrent.org:25401,router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881,dht.aelitis.com:6881")
-        sp.setInteger(settings_pack.int_types.connection_speed.swigValue(), 60)
-        sp.setInteger(settings_pack.int_types.torrent_connect_boost.swigValue(), 60)
+        sp.setInteger(settings_pack.int_types.connection_speed.swigValue(), 80)
+        sp.setInteger(settings_pack.int_types.torrent_connect_boost.swigValue(), 80)
         sp.setInteger(settings_pack.int_types.peer_connect_timeout.swigValue(), 7)
         sp.setInteger(settings_pack.int_types.request_timeout.swigValue(), 10)
         sp.setInteger(settings_pack.int_types.min_reconnect_time.swigValue(), 2)
         val s = SessionManager(false)
         // E/S disque par défaut de libtorrent 2 (fichiers mappés en mémoire) : la plus rapide.
         // Sur Android, ART chaîne les signaux (libsigchain) donc pas de conflit avec la VM.
-        s.start(SessionParams(sp))
+        // L'état du réseau DHT est réutilisé d'un lancement à l'autre : pairs trouvés en quelques secondes.
+        val stateFile = File(cache.parentFile ?: cache, "onyx-session.dat")
+        val saved = try { if (stateFile.length() > 0) SessionParams(stateFile.readBytes()) else null } catch (_: Throwable) { null }
+        if (saved != null) {
+            s.start(saved)
+            s.applySettings(sp)
+        } else s.start(SessionParams(sp))
         session = s
+        Thread {
+            while (true) {
+                Thread.sleep(if (stateFile.exists()) 120_000 else 45_000)
+                try { s.saveState()?.let { stateFile.writeBytes(it) } } catch (_: Throwable) { }
+            }
+        }.apply { isDaemon = true; start() }
         for (p in 11480..11495) {
             try { val srv = Server(p); srv.start(NanoHTTPD.SOCKET_READ_TIMEOUT, true); server = srv; break } catch (_: Exception) { }
         }
+        loadTrackers(cache.parentFile ?: cache)
+    }
+
+    /** Liste de trackers à jour (ngosang/trackerslist), gardée en cache pour les démarrages suivants. */
+    private fun loadTrackers(base: File) {
+        val f = File(base, "onyx-trackers.txt")
+        try { if (f.exists()) trackers = (f.readLines().map { it.trim() }.filter { it.contains("://") } + DEFAULT_TRACKERS).distinct() } catch (_: Exception) { }
+        Thread {
+            val got = ArrayList<String>()
+            for (u in listOf("https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_best.txt",
+                             "https://cdn.jsdelivr.net/gh/ngosang/trackerslist@master/trackers_best.txt",
+                             "https://raw.githubusercontent.com/ngosang/trackerslist/master/trackers_all_https.txt")) {
+                try {
+                    val c = java.net.URL(u).openConnection() as java.net.HttpURLConnection
+                    c.connectTimeout = 8000; c.readTimeout = 8000
+                    c.inputStream.bufferedReader().readLines().map { it.trim() }.filter { it.contains("://") }.forEach { got.add(it) }
+                } catch (_: Exception) { }
+            }
+            if (got.size >= 5) {
+                trackers = (got + DEFAULT_TRACKERS).distinct()
+                try { f.writeText(got.distinct().joinToString("\n")) } catch (_: Exception) { }
+            }
+        }.apply { isDaemon = true; start() }
     }
 
     /** Espace libre (octets) pour le cache torrent. */
     fun freeSpace(): Long = try { StatFs(dir.path).availableBytes } catch (_: Exception) { -1 }
 
-    /** Prépare (ou réutilise) un torrent et renvoie l'URL locale à donner au lecteur. */
-    fun open(hash: String, fileIdx: Int, filename: String?, sources: List<String>, prewarm: Boolean = false): String {
+    /** Prépare (ou réutilise) un torrent dans le mode voulu et renvoie l'URL locale pour le lecteur. */
+    fun open(hash: String, fileIdx: Int, filename: String?, sources: List<String>, mode: Int = STREAM): String {
         val h = hash.lowercase()
         var created = false
-        val e = entries[h] ?: Entry(h, fileIdx, filename, sources).also { it.prewarmOnly = prewarm; entries[h] = it; created = true }
+        val e: Entry
+        synchronized(entries) {
+            e = entries[h] ?: Entry(h, fileIdx, filename, sources).also { it.mode = mode; entries[h] = it; created = true }
+        }
         if (created) start(e)
-        else if (!prewarm && e.prewarmOnly) { e.prewarmOnly = false; activate(e) }
-        e.lastUse = System.currentTimeMillis()
-        trim(h)
+        else if (mode > e.mode) { e.mode = mode; applyMode(e) }
+        if (mode >= PREWARM) e.lastUse = System.currentTimeMillis()
+        trim()
         return "http://127.0.0.1:$port/stream/$h"
     }
 
-    /** Préchargement : récupère les métadonnées et les premiers/derniers morceaux à l'avance. */
-    fun prepare(hash: String, fileIdx: Int, filename: String?, sources: List<String>) { open(hash, fileIdx, filename, sources, true) }
+    /** Préchargement : métadonnées + premiers/derniers morceaux. */
+    fun prepare(hash: String, fileIdx: Int, filename: String?, sources: List<String>) { open(hash, fileIdx, filename, sources, PREWARM) }
 
-    /** Passage du préchargement à la lecture : tout le fichier devient prioritaire. */
-    private fun activate(e: Entry) {
+    /** Sonde plusieurs torrents en parallèle (presque sans débit) pour savoir lesquels ont des pairs. */
+    fun probe(list: JSONArray) {
+        for (i in 0 until list.length()) {
+            val o = list.optJSONObject(i) ?: continue
+            val h = o.optString("hash")
+            if (h.length != 40) continue
+            val src = o.optJSONArray("sources")
+            open(h, o.optInt("fileIdx", -1), o.optString("filename").ifEmpty { null },
+                if (src == null) emptyList() else (0 until src.length()).map { src.getString(it) }, PROBE)
+        }
+    }
+
+    /** Ne garde que ces torrents (+ celui en cours de lecture) : libère réseau et disque. */
+    fun keepOnly(hashes: Collection<String>) {
+        val keep = hashes.map { it.lowercase() }.toSet()
+        val now = System.currentTimeMillis()
+        entries.values.filter { it.hash !in keep && !(it.mode == STREAM && now - it.lastUse < 60_000) }.forEach { remove(it.hash) }
+    }
+
+    /** Applique la stratégie de téléchargement du mode actuel (une fois les métadonnées reçues). */
+    private fun applyMode(e: Entry) {
         val th = e.handle ?: return
         val ti = e.info ?: return
+        val n = ti.files().numFiles()
+        val idx = e.fileIndex
         try {
-            th.setDownloadLimit(-1)
-            th.prioritizeFiles(Array(ti.files().numFiles()) { if (it == e.fileIndex) Priority.DEFAULT else Priority.IGNORE })
+            when (e.mode) {
+                PROBE -> {
+                    // reste « intéressé » auprès des pairs, mais quasiment sans débit
+                    th.setDownloadLimit(48 * 1024)
+                    th.prioritizeFiles(Array(n) { if (it == idx) Priority.LOW else Priority.IGNORE })
+                }
+                PREWARM -> {
+                    th.setDownloadLimit(-1)
+                    th.prioritizeFiles(Array(n) { Priority.IGNORE })
+                    window(e, 0, 8L * 1024 * 1024, 0, true)
+                    val size = ti.files().fileSize(idx)
+                    window(e, maxOf(0, size - 4L * 1024 * 1024), 4L * 1024 * 1024, 300, true)
+                    startTrickle(e)
+                }
+                else -> {
+                    th.setDownloadLimit(-1)
+                    th.prioritizeFiles(Array(n) { if (it == idx) Priority.DEFAULT else Priority.IGNORE })
+                    window(e, 0, 8L * 1024 * 1024, 0)
+                    val size = ti.files().fileSize(idx)
+                    window(e, maxOf(0, size - 4L * 1024 * 1024), 4L * 1024 * 1024, 300)
+                }
+            }
         } catch (_: Exception) { }
     }
 
-    /** Garde au plus 2 torrents (lecture en cours + préchargement), supprime les autres. */
-    private fun trim(keep: String) {
-        val others = entries.values.filter { it.hash != keep }.sortedByDescending { it.lastUse }
-        others.drop(1).forEach { remove(it.hash) }
+    /** Préchargement terminé (début + fin) → filet à 200 ko/s pour rester débloqué par les pairs. */
+    private fun startTrickle(e: Entry) {
+        if (e.trickleStarted) return
+        e.trickleStarted = true
+        Thread {
+            val th = e.handle ?: return@Thread
+            val t0 = System.currentTimeMillis()
+            while (e.mode == PREWARM && !e.cancelled && System.currentTimeMillis() - t0 < 60_000) {
+                if (e.prioritized.all { th.havePiece(it) }) break
+                Thread.sleep(250)
+            }
+            if (e.mode == PREWARM && !e.cancelled) try {
+                th.setDownloadLimit(200 * 1024)
+                val n = e.info?.files()?.numFiles() ?: return@Thread
+                th.prioritizeFiles(Array(n) { if (it == e.fileIndex) Priority.LOW else Priority.IGNORE })
+            } catch (_: Exception) { }
+        }.apply { isDaemon = true; start() }
+    }
+
+    /** Limite le nombre de torrents : on retire d'abord les sondes les plus anciennes. */
+    private fun trim() {
+        if (entries.size <= MAX_ENTRIES) return
+        entries.values.sortedWith(compareBy<Entry>({ it.mode }, { it.lastUse }))
+            .take(entries.size - MAX_ENTRIES).forEach { remove(it.hash) }
     }
 
     fun remove(hash: String) {
         val e = entries.remove(hash) ?: return
         e.cancelled = true
-        val th = e.handle
+        val th = e.handle ?: e.early
         Thread { try { if (th != null && th.isValid) session?.remove(th, SessionHandle.DELETE_FILES) } catch (_: Exception) { } }.start()
     }
 
     private fun start(e: Entry) = Thread {
         try {
             val s = session ?: throw IOException("moteur torrent indisponible")
-            val trackers = (e.trackers.mapNotNull { if (it.startsWith("tracker:")) it.removePrefix("tracker:") else null } + TRACKERS).distinct()
-            val magnet = "magnet:?xt=urn:btih:${e.hash}" + trackers.joinToString("") { "&tr=" + URLEncoder.encode(it, "UTF-8") }
+            val list = (e.trackers.mapNotNull { if (it.startsWith("tracker:")) it.removePrefix("tracker:") else null } + trackers).distinct()
+            val magnet = "magnet:?xt=urn:btih:${e.hash}" + list.joinToString("") { "&tr=" + URLEncoder.encode(it, "UTF-8") }
             // (pas de « ne rien télécharger par défaut » : on resterait « non intéressé » auprès des pairs,
             //  qui mettraient ensuite jusqu'à 15 s à nous envoyer des données)
             s.download(magnet, dir, TorrentFlags.SEQUENTIAL_DOWNLOAD)
             val sha = Sha1Hash.parseHex(e.hash)
             var th: TorrentHandle? = null
             val t0 = System.currentTimeMillis()
+            var scraped = false
             // attend les métadonnées (liste des fichiers) en gardant les pairs déjà connectés
             while (!e.cancelled) {
-                th = th ?: s.find(sha)
-                if (th != null && th.isValid && th.status().hasMetadata()) break
+                if (th == null) {
+                    th = s.find(sha)
+                    if (th != null && th.isValid) {
+                        // hors de la file d'attente de libtorrent : le torrent démarre tout de suite
+                        th.unsetFlags(TorrentFlags.AUTO_MANAGED)
+                        th.resume()
+                        e.early = th
+                    }
+                }
+                if (th != null && th.isValid) {
+                    if (!scraped && System.currentTimeMillis() - t0 > 2500) { scraped = true; try { th.scrapeTracker() } catch (_: Exception) { } }
+                    if (th.status().hasMetadata()) break
+                }
                 if (System.currentTimeMillis() - t0 > 90_000) throw IOException("aucun pair trouvé pour ce torrent")
                 Thread.sleep(150)
             }
@@ -166,27 +299,8 @@ object TorrentEngine {
             val ti = th.torrentFile() ?: throw IOException("métadonnées illisibles")
             val idx = chooseFile(ti, e.fileHint, e.filename)
             if (idx < 0) throw IOException("aucune vidéo dans ce torrent")
-            val fs = ti.files()
-            th.prioritizeFiles(Array(fs.numFiles()) { if (it == idx && !e.prewarmOnly) Priority.DEFAULT else Priority.IGNORE })
             e.info = ti; e.fileIndex = idx; e.handle = th
-            if (!e.prewarmOnly) activate(e)
-            // début (lecture) puis fin du fichier (index MKV/MP4) en priorité absolue
-            window(e, 0, 8L * 1024 * 1024, 0, e.prewarmOnly)
-            val size = fs.fileSize(idx)
-            window(e, maxOf(0, size - 4L * 1024 * 1024), 4L * 1024 * 1024, 300, e.prewarmOnly)
-            if (e.prewarmOnly) {
-                // début et fin prêts → on continue « au compte-gouttes » (200 ko/s) : on reste
-                // intéressé auprès des pairs, qui ne nous coupent pas → la lecture repart à pleine vitesse
-                val ready0 = System.currentTimeMillis()
-                while (e.prewarmOnly && !e.cancelled && System.currentTimeMillis() - ready0 < 60_000) {
-                    if (e.prioritized.all { th.havePiece(it) }) break
-                    Thread.sleep(250)
-                }
-                if (e.prewarmOnly && !e.cancelled) {
-                    th.setDownloadLimit(200 * 1024)
-                    th.prioritizeFiles(Array(fs.numFiles()) { if (it == idx) Priority.LOW else Priority.IGNORE })
-                }
-            }
+            applyMode(e)
         } catch (ex: Exception) {
             e.error = ex.message ?: "erreur torrent"
         } finally {
@@ -232,26 +346,33 @@ object TorrentEngine {
         }
     }
 
-    /** État pour l'interface : pairs, débit, progression. */
+    /** État d'un torrent : seeds annoncés, pairs connectés, débit, progression du fichier. */
     fun stats(hash: String): JSONObject {
         val o = JSONObject()
         val e = entries[hash.lowercase()] ?: return o.put("state", "none")
+        o.put("dht", session?.dhtNodes() ?: 0)
         e.error?.let { return o.put("state", "error").put("error", it) }
-        val th = e.handle
-        if (th == null || !th.isValid) {
-            val s = session?.find(Sha1Hash.parseHex(e.hash))
-            val st = try { s?.status() } catch (_: Exception) { null }
-            return o.put("state", "metadata").put("peers", st?.numPeers() ?: 0).put("speed", st?.downloadPayloadRate() ?: 0)
-        }
-        val st = th.status()
-        val ti = e.info
+        val th = e.handle ?: e.early
+        val st = try { if (th != null && th.isValid) th.status() else null } catch (_: Exception) { null }
+        if (st == null) return o.put("state", "starting").put("peers", 0).put("seeds", 0)
+        val seeds = maxOf(st.numComplete(), st.listSeeds(), st.numSeeds())
+        o.put("peers", st.numPeers()).put("seeds", seeds).put("known", st.listPeers()).put("speed", st.downloadPayloadRate())
+            .put("metadata", st.hasMetadata())
+        if (e.handle == null) return o.put("state", "metadata")
         var done = 0.0
+        val ti = e.info
         if (ti != null) try {
             val size = ti.files().fileSize(e.fileIndex).toDouble()
-            if (size > 0) done = th.fileProgress()[e.fileIndex] / size
+            if (size > 0) done = e.handle!!.fileProgress()[e.fileIndex] / size
         } catch (_: Exception) { }
-        return o.put("state", "downloading").put("peers", st.numPeers()).put("speed", st.downloadPayloadRate())
-            .put("progress", done)
+        return o.put("state", "downloading").put("progress", done)
+    }
+
+    /** État de plusieurs torrents d'un coup (pour choisir le meilleur torrent vivant). */
+    fun health(hashes: JSONArray): JSONObject {
+        val o = JSONObject()
+        for (i in 0 until hashes.length()) { val h = hashes.optString(i).lowercase(); o.put(h, stats(h)) }
+        return o
     }
 
     /* ---------- Serveur HTTP local (Range) ---------- */

@@ -19,6 +19,9 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ImageView
+import android.widget.ProgressBar
+import android.graphics.BitmapFactory
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.annotation.OptIn
@@ -71,6 +74,12 @@ class PlayerActivity : Activity() {
     private lateinit var menuBtn: TextView
     private val failTimeout = Runnable { finish() }
     private lateinit var status: TextView
+    private lateinit var loadingView: FrameLayout
+    private lateinit var loadingArt: ImageView
+    private lateinit var loadingTitle: TextView
+    private lateinit var loadingSub: TextView
+    private lateinit var loadingText: TextView
+    private var artUrl: String? = null
     private var torrentHash: String? = null
     private var loadStart = 0L
     private var everReady = false
@@ -86,13 +95,18 @@ class PlayerActivity : Activity() {
                 if (h != null) {
                     val st = TorrentEngine.stats(h)
                     val peers = st.optInt("peers"); val speed = st.optInt("speed")
+                    val seeds = st.optInt("seeds"); val dht = st.optInt("dht")
                     val txt = when (st.optString("state")) {
-                        "metadata" -> "Recherche de pairs… $peers connecté(s)"
+                        "starting", "metadata" -> "Connexion aux pairs… $peers connecté(s)" + (if (seeds > 0) " · $seeds sources" else "") +
+                            (if (peers == 0 && dht == 0 && secs > 8) " · réseau DHT injoignable" else "")
                         "error" -> "Erreur torrent : " + st.optString("error")
                         else -> "$peers pairs · " + fmtSpeed(speed) + " · " + (st.optDouble("progress") * 100).toInt() + " %"
                     }
                     showStatus(txt)
-                    if (!everReady && ((peers == 0 && secs > 45) || secs > 150 || st.optString("state") == "error")) { fail(if (peers == 0) "aucun pair pour ce torrent" else "torrent trop lent"); return }
+                    // les sources sont vérifiées avant la lecture : si celle-ci reste muette, on passe vite à la suivante
+                    if (!everReady && ((peers == 0 && seeds <= 0 && secs > 30) || secs > 120 || st.optString("state") == "error")) {
+                        fail(if (peers == 0) "aucun pair pour ce torrent" else "torrent trop lent"); return
+                    }
                 } else {
                     showStatus(if (everReady) "Chargement…" else "Connexion à la source…")
                     if (!everReady && secs > 35) { fail("la source ne répond pas"); return }
@@ -189,6 +203,27 @@ class PlayerActivity : Activity() {
             topMargin = dp(110f)
         })
 
+        // écran de chargement (affiche + titre + état) : jamais d'écran noir pendant la connexion
+        loadingView = FrameLayout(this).apply { setBackgroundColor(Color.BLACK); isClickable = false }
+        loadingArt = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0f }
+        loadingView.addView(loadingArt, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        loadingView.addView(View(this).apply {
+            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xF2000000.toInt(), 0xB3000000.toInt(), 0x66000000))
+        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
+        loadingTitle = TextView(this).apply { setTextColor(Color.WHITE); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 2 }
+        loadingSub = TextView(this).apply { setTextColor(0xFFC4C4CC.toInt()); textSize = 17f; gravity = Gravity.CENTER; maxLines = 1 }
+        val spin = ProgressBar(this).apply { isIndeterminate = true; indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE) }
+        loadingText = TextView(this).apply { setTextColor(0xFFDDDDE2.toInt()); textSize = 15f; gravity = Gravity.CENTER; text = "Connexion à la source…" }
+        col.addView(loadingTitle)
+        col.addView(loadingSub)
+        col.addView(spin, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { topMargin = dp(28f) })
+        col.addView(loadingText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16f) })
+        loadingView.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply {
+            leftMargin = dp(48f); rightMargin = dp(48f)
+        })
+        root.addView(loadingView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+
         osd = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
             setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
@@ -206,6 +241,12 @@ class PlayerActivity : Activity() {
         val url = o.optString("url")
         if (url.isEmpty()) { finish(); return }
         videoId = o.optString("videoId")
+        loadingTitle.text = o.optString("title")
+        loadingSub.text = o.optString("subtitle")
+        loadingSub.visibility = if (o.optString("subtitle").isEmpty()) View.GONE else View.VISIBLE
+        loadingText.text = "Connexion à la source…"
+        loadingView.animate().cancel(); loadingView.alpha = 1f; loadingView.visibility = View.VISIBLE
+        loadArt(o.optString("background").ifEmpty { o.optString("poster") })
         menu = o.optJSONObject("menu")
         deviceLang = o.optString("deviceLang", "fr")
         menuBtn.visibility = if (menu != null) View.VISIBLE else View.GONE
@@ -278,7 +319,10 @@ class PlayerActivity : Activity() {
 
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) { everReady = true; showStatus(null) }
+                if (state == Player.STATE_READY) {
+                    everReady = true; showStatus(null)
+                    loadingView.animate().alpha(0f).setDuration(400).withEndAction { loadingView.visibility = View.GONE }.start()
+                }
                 if (state == Player.STATE_ENDED) { ended = true; finish() }
             }
             override fun onTracksChanged(tracks: Tracks) {
@@ -421,8 +465,29 @@ class PlayerActivity : Activity() {
     }
 
     private fun showStatus(t: String?) {
+        // avant la première image : le texte va sur l'écran de chargement
+        if (!everReady && loadingView.visibility == View.VISIBLE) {
+            status.visibility = View.GONE
+            if (t != null) loadingText.text = t
+            return
+        }
         if (t == null) { status.visibility = View.GONE; return }
         status.text = t; status.visibility = View.VISIBLE
+    }
+
+    /** Charge l'affiche du titre en fond de l'écran de chargement. */
+    private fun loadArt(url: String) {
+        if (url.isEmpty() || url == artUrl) { if (url.isEmpty()) loadingArt.alpha = 0f; return }
+        artUrl = url
+        loadingArt.alpha = 0f
+        Thread {
+            try {
+                val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                c.connectTimeout = 6000; c.readTimeout = 8000; c.instanceFollowRedirects = true
+                val bmp = c.inputStream.use { BitmapFactory.decodeStream(it) }
+                if (bmp != null) main.post { if (artUrl == url) { loadingArt.setImageBitmap(bmp); loadingArt.animate().alpha(0.55f).setDuration(500).start() } }
+            } catch (_: Exception) { }
+        }.start()
     }
 
     /** Source illisible : l'interface essaie automatiquement la suivante, au même endroit. */
