@@ -17,6 +17,8 @@ android {
         targetSdk = 35
         versionCode = rootProject.extra["onyxVersionCode"] as Int
         versionName = rootProject.extra["onyxVersionName"] as String
+        // les TV Android utilisent des processeurs ARM : APK plus léger (mises à jour plus rapides)
+        ndk { abiFilters += listOf("armeabi-v7a", "arm64-v8a") }
     }
     // Signature : clé fournie par la CI (secrets GitHub), sinon clé de debug
     val ksFile = System.getenv("ONYX_KEYSTORE_FILE")?.let { file(it) }
