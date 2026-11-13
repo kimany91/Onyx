@@ -19,6 +19,7 @@ import android.webkit.WebViewClient
 import android.widget.Toast
 import androidx.webkit.WebViewAssetLoader
 import app.onyx.core.PlayerActivity
+import app.onyx.core.TorrentEngine
 import app.onyx.core.Updater
 import com.google.zxing.client.android.Intents
 import com.journeyapps.barcodescanner.CaptureActivity
@@ -68,6 +69,7 @@ class MainActivity : Activity() {
         }
         setContentView(web)
         PlayerActivity.events = { name, json -> emit(name, json) }
+        Thread { try { TorrentEngine.init(applicationContext) } catch (_: Throwable) { } }.start()
 
         // Lien direct (QR code scanné avec l'appareil photo puis « ouvrir avec Onyx »)
         intent?.data?.let { accept(it.toString()) }
@@ -150,6 +152,20 @@ class MainActivity : Activity() {
             runOnUiThread { startActivity(Intent(this@MainActivity, PlayerActivity::class.java).putExtra("json", json)) }
             return true
         }
+
+        @JavascriptInterface fun torrentUrl(hash: String, fileIdx: String?, filename: String?, sources: String?): String {
+            TorrentEngine.init(applicationContext)
+            return TorrentEngine.open(hash, fileIdx?.toIntOrNull() ?: -1, filename, TorrentEngine.parseSources(sources))
+        }
+
+        @JavascriptInterface fun torrentPrepare(hash: String, fileIdx: String?, filename: String?, sources: String?) {
+            TorrentEngine.init(applicationContext)
+            TorrentEngine.prepare(hash, fileIdx?.toIntOrNull() ?: -1, filename, TorrentEngine.parseSources(sources))
+        }
+
+        @JavascriptInterface fun torrentStats(hash: String): String = TorrentEngine.stats(hash).toString()
+
+        @JavascriptInterface fun freeSpace(): String { TorrentEngine.init(applicationContext); return TorrentEngine.freeSpace().toString() }
 
         @JavascriptInterface fun closePlayer(reason: String?) { runOnUiThread { PlayerActivity.current?.finishWithError(reason) } }
 

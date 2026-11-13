@@ -34,6 +34,7 @@ android {
     }
     sourceSets["main"].assets.srcDir(layout.buildDirectory.dir("generated/webassets"))
     buildFeatures { buildConfig = true }
+    packaging { jniLibs.useLegacyPackaging = true }
     lint { checkReleaseBuilds = false; abortOnError = false }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }

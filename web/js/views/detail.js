@@ -243,6 +243,8 @@
       if (hadFocus || !Onyx.focus.cur || !Onyx.focus.cur.isConnected) {
         if (el.classList.contains('active') && !Onyx.$('#modals > .modal')) Onyx.focus.set(Onyx.$('.btn.default', actions));
       }
+      var isSer = (m.videos || []).length > 0 && m.type !== 'movie';
+      if (!params.autoplay) Onyx.player.prewarm(m, isSer ? targetEpisode(m) : null);
       if (params.autoplay) {
         var isSeries = (m.videos || []).length > 0 && m.type !== 'movie';
         Onyx.player.auto(m, isSeries ? targetEpisode(m) : null, {});

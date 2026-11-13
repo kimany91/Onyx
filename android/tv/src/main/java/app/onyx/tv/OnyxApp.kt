@@ -4,6 +4,7 @@ import android.app.Application
 import android.os.Handler
 import android.os.Looper
 import app.onyx.core.PlayerActivity
+import app.onyx.core.TorrentEngine
 import org.json.JSONObject
 
 class OnyxApp : Application() {
@@ -21,6 +22,7 @@ class OnyxApp : Application() {
         super.onCreate()
         instance = this
         PlayerActivity.events = { name, json -> MainActivity.emit(name, json) }
+        Thread { try { TorrentEngine.init(this) } catch (_: Throwable) { } }.start()
     }
 
     /** Démarre le serveur de connexion (ports 8765 à 8775). */

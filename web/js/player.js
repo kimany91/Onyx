@@ -36,6 +36,8 @@
     var prefs = S.prefs.forShow(meta.id);
     if (opts.prefs) Object.keys(opts.prefs).forEach(function (k) { prefs[k] = opts.prefs[k]; });
     var loading = showLoading(meta, video);
+    // sous-titres en parallèle : aucune attente supplémentaire au lancement
+    var subsP = withTimeout(S.subtitles(type, videoId, {}), 4000, []);
     var itemsP = opts.items ? Promise.resolve(opts.items) : S.collect(type, videoId, function (n, done, total) {
       loading.status('Recherche des sources… ' + done + '/' + total + (n ? ' · ' + n + ' fichiers' : ''));
     });
@@ -59,8 +61,19 @@
           if (i > 0 && ranked[i].score >= ranked[0].score - 20) ranked.unshift(ranked.splice(i, 1)[0]);
         }
       }
-      var ctx = { meta: Onyx.preview(meta), fullMeta: meta, type: type, videoId: videoId, video: video || null, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt };
+      var ctx = { meta: Onyx.preview(meta), fullMeta: meta, type: type, videoId: videoId, video: video || null, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt, subsP: subsP };
       start(ctx, 0, loading);
+    });
+  };
+
+  /* Préchargement dès l'ouverture d'une fiche : sources en cache + début du torrent prêt */
+  P.prewarm = function (meta, video) {
+    if (!meta || !meta.id) return;
+    var vid = videoIdOf(meta, video);
+    S.collect(meta.type, vid).then(function (items) {
+      if (!items.length) return;
+      var best = S.rank(items, S.prefs.forShow(meta.id))[0];
+      if (best && best.info.kind === 'torrent') S.prepare(best.stream);
     });
   };
 
@@ -90,8 +103,8 @@
         if (!Onyx.native.openExternal(res.external)) window.open(res.external, '_blank');
         return;
       }
-      ctx.subsP = ctx.subsP || withTimeout(S.subtitles(ctx.type, ctx.videoId, {}), 5000, []);
-      return ctx.subsP.then(function (subs) {
+      ctx.subsP = ctx.subsP || withTimeout(S.subtitles(ctx.type, ctx.videoId, {}), 4000, []);
+      return withTimeout(ctx.subsP, res.torrent ? 300 : 1200, []).then(function (subs) {
         if (loading && loading.cancelled) return;
         if (loading) loading.close();
         launch(ctx, res, S.pickSubtitles(subs, ctx.prefs), startAt);
@@ -185,6 +198,12 @@
     if (d.position !== undefined && !d.failed) {
       P.nativeState = d;
       Onyx.progress.update({ videoId: ctx.videoId, position: d.position / 1000, duration: d.duration / 1000, ended: !!d.ended });
+    }
+    // à 85 % d'un épisode : on prépare déjà le suivant
+    if (d.duration > 0 && d.position / d.duration > 0.85 && !ctx.nextWarm) {
+      ctx.nextWarm = true;
+      var nvw = nextVideo(ctx.fullMeta || ctx.meta, ctx.videoId);
+      if (nvw) P.prewarm(ctx.fullMeta || ctx.meta, nvw);
     }
     if (d.failed) {
       // fichier illisible : on essaie automatiquement le suivant, au même endroit

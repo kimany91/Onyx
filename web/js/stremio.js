@@ -282,7 +282,12 @@
     if (/\b(dv|dovi|dolby ?vision)\b/i.test(all)) badges.push('DV');
     if (/\b(atmos)\b/i.test(all)) badges.push('Atmos');
     if (/\b(hevc|x265|h\.?265)\b/i.test(all)) badges.push('HEVC');
-    var size = (all.match(/(\d+(?:[.,]\d+)?)\s?(GB|MB|Go|Mo)\b/i) || [])[0] || '';
+    var sm = all.match(/(\d+(?:[.,]\d+)?)\s?(TB|GB|MB|To|Go|Mo)\b/i);
+    var size = sm ? sm[0] : '';
+    var sizeBytes = 0;
+    if (sm) { var u = sm[2].toUpperCase(); sizeBytes = parseFloat(sm[1].replace(',', '.')) * (u[0] === 'T' ? 1e12 : u[0] === 'G' ? 1e9 : 1e6); }
+    if (!sizeBytes && s.behaviorHints && s.behaviorHints.videoSize) sizeBytes = s.behaviorHints.videoSize;
+    var seeds = Number((all.match(/👤\s*(\d+)/) || [])[1] || 0);
     var kind = s.url ? 'url' : s.infoHash ? 'torrent' : s.ytId ? 'youtube' : s.externalUrl ? 'external' : 'unknown';
     var multi = /\bmulti\b/i.test(all);
     var vostfr = /\bvost(fr)?\b|\bsubfrench\b/i.test(all);
@@ -291,7 +296,9 @@
     return {
       name: name || 'Source', title: title, res: res, quality: res ? S.qualityLabel(res) : '', badges: badges, size: size, kind: kind,
       multi: multi, vostfr: vostfr, langs: langs, fr: multi || langs.indexOf('fr') >= 0,
-      cached: /\[(RD|AD|PM|DL|TB|ED|OC)\+\]|⚡|cached/i.test(name)
+      cached: /\[(RD|AD|PM|DL|TB|ED|OC|DB|EN|PK)\+\]|⚡|cached/i.test(name),
+      uncached: /⬇️|⬇|\[(RD|AD|PM|DL|TB|ED|OC|DB|EN|PK) download\]|uncached/i.test(name),
+      sizeBytes: sizeBytes, seeds: seeds
     };
   };
   /* Libellé humain : « Français · 1080p · HDR » */
@@ -340,6 +347,8 @@
     }
     sc *= 1.5;
     var r = info.res || 700, q = prefs.quality;
+    // en torrent, « Auto » vise le 1080p : démarrage bien plus rapide qu'un 4K de 15 Go
+    if ((q === 'auto' || !q) && info.kind === 'torrent') q = 1080;
     if (q === 'auto' || !q) sc += Math.min(r, 2160) / 2160 * 60;
     else {
       q = Number(q);
@@ -347,10 +356,17 @@
       else if (r < q) sc += 60 - (q - r) / 360 * 15;
       else sc += 45 - (r - q) / 360 * 10;
     }
-    if (info.kind === 'url') sc += 30;
-    else if (info.kind === 'torrent') sc += 0;
+    // démarrage instantané d'abord : debrid en cache > lien direct > torrent
+    if (info.kind === 'url') sc += info.cached ? 70 : info.uncached ? -40 : 35;
+    else if (info.kind === 'torrent') {
+      sc += S.hasTorrentEngine() ? 0 : -120;
+      if (info.seeds) sc += Math.min(25, Math.log(info.seeds + 1) / Math.LN2 * 3.5);
+      var gb = info.sizeBytes / 1e9;
+      if (gb > 20) sc -= 30; else if (gb > 10) sc -= 15; else if (gb > 6) sc -= 5;
+      var free = S.freeSpace();
+      if (free > 0 && info.sizeBytes && info.sizeBytes > free - 5e8) sc -= 400;
+    }
     else sc -= 200;
-    if (info.cached) sc += 10;
     if (info.badges.indexOf('DV') >= 0 && info.badges.indexOf('HDR') < 0) sc -= 8;
     return sc;
   };
@@ -377,14 +393,14 @@
       if (!addons.length) return resolve(items);
       var left = addons.length;
       function finish() { if (!done) { done = true; clearTimeout(settleT); clearTimeout(maxT); resolve(items); } }
-      var maxT = setTimeout(finish, 20000);
+      var maxT = setTimeout(finish, 12000);
       S.streams(type, id, function (res) {
         var idx = addons.indexOf(res.addon);
         res.streams.forEach(function (s, i) { items.push({ addon: res.addon, stream: s, info: S.streamInfo(s), addonIndex: idx, index: i }); });
         left--;
         if (onProgress) onProgress(items.length, addons.length - left, addons.length);
         if (!left) return finish();
-        if (items.length && !settleT) settleT = setTimeout(finish, 4500);
+        if (items.length && !settleT) settleT = setTimeout(finish, 2500);
       });
     });
   };
@@ -423,6 +439,28 @@
     return out;
   };
 
+  /* Moteur torrent intégré (apps Android TV et téléphone) */
+  S.engine = function () {
+    if (window.OnyxNative && typeof window.OnyxNative.torrentUrl === 'function') return window.OnyxNative;
+    if (window.OnyxPhone && typeof window.OnyxPhone.torrentUrl === 'function') return window.OnyxPhone;
+    return null;
+  };
+  S.hasTorrentEngine = function () { return !!S.engine(); };
+  var freeCache = { t: 0, v: -1 };
+  S.freeSpace = function () {
+    var e = S.engine();
+    if (!e || typeof e.freeSpace !== 'function') return -1;
+    if (Date.now() - freeCache.t > 60000) { freeCache = { t: Date.now(), v: Number(e.freeSpace()) || -1 }; }
+    return freeCache.v;
+  };
+  /* Préchargement : métadonnées + début/fin du fichier, pour un démarrage quasi instantané */
+  S.prepare = function (stream) {
+    var e = S.engine();
+    if (!e || !stream || !stream.infoHash || typeof e.torrentPrepare !== 'function') return;
+    var hb = stream.behaviorHints || {};
+    try { e.torrentPrepare(stream.infoHash, String(stream.fileIdx === undefined || stream.fileIdx === null ? -1 : stream.fileIdx), hb.filename || '', JSON.stringify(stream.sources || [])); } catch (x) { }
+  };
+
   /* Transforme une source en URL lisible */
   S.resolve = function (stream, serverUrl) {
     if (stream.url) {
@@ -432,6 +470,12 @@
     }
     if (stream.ytId) return Promise.resolve({ external: 'https://www.youtube.com/watch?v=' + stream.ytId });
     if (stream.externalUrl) return Promise.resolve({ external: stream.externalUrl });
+    if (stream.infoHash && S.hasTorrentEngine()) {
+      var nt = S.engine();
+      var hb = stream.behaviorHints || {};
+      var u = nt.torrentUrl(stream.infoHash, String(stream.fileIdx === undefined || stream.fileIdx === null ? -1 : stream.fileIdx), hb.filename || '', JSON.stringify(stream.sources || []));
+      return Promise.resolve({ url: u, torrent: true });
+    }
     if (stream.infoHash) {
       var srv = (serverUrl || 'http://127.0.0.1:11470').replace(/\/+$/, '');
       var ih = stream.infoHash.toLowerCase();

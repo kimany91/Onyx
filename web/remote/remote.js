@@ -153,6 +153,7 @@
     var vid = vidOf(meta, video);
     var prefs = S.prefs.forShow(meta.id);
     var loading = loadingSheet(meta, video);
+    var subsP = withTimeout(S.subtitles(meta.type, vid, {}), 4000, []);
     S.collect(meta.type, vid, function (n, done, total) {
       loading.status('Recherche des sources… ' + done + '/' + total + (n ? ' · ' + n + ' fichiers' : ''));
     }).then(function (items) {
@@ -168,7 +169,7 @@
           if (i > 0 && ranked[i].score >= ranked[0].score - 20) ranked.unshift(ranked.splice(i, 1)[0]);
         }
       }
-      cur = { meta: meta, video: video || null, vid: vid, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt };
+      cur = { meta: meta, video: video || null, vid: vid, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt, subsP: subsP };
       if (!meta.videos && meta.type === 'series') S.meta(meta.type, meta.id).then(function (m) { if (cur && cur.meta === meta) cur.meta = m; }, function () { });
       startPhone(cur, 0, loading);
     });
@@ -189,8 +190,8 @@
     S.resolve(cand.stream, localStorage.getItem('onyx.phoneStreamServer') || 'http://127.0.0.1:11470').then(function (res) {
       if (loading && loading.cancelled) return;
       if (res.external) { if (loading) loading.close(); phone.openExternal(res.external, ''); return; }
-      ctx.subsP = ctx.subsP || withTimeout(S.subtitles(ctx.meta.type, ctx.vid, {}), 5000, []);
-      return ctx.subsP.then(function (subs) {
+      ctx.subsP = ctx.subsP || withTimeout(S.subtitles(ctx.meta.type, ctx.vid, {}), 4000, []);
+      return withTimeout(ctx.subsP, res.torrent ? 300 : 1200, []).then(function (subs) {
         if (loading && loading.cancelled) return;
         if (loading) loading.close();
         var v = ctx.video;
@@ -237,6 +238,16 @@
     if (!d || !cur || (d.videoId && d.videoId !== cur.vid)) return;
     var ctx = cur;
     if (d.position !== undefined && !d.failed) Onyx.progress.update({ videoId: ctx.vid, position: d.position / 1000, duration: d.duration / 1000, ended: !!d.ended });
+    if (d.duration > 0 && d.position / d.duration > 0.85 && !ctx.nextWarm && S.hasTorrentEngine()) {
+      ctx.nextWarm = true;
+      var nvs = ((ctx.meta && ctx.meta.videos) || []).filter(function (v) { return v.season !== 0; })
+        .sort(function (a, b) { return (a.season - b.season) || ((a.episode || a.number) - (b.episode || b.number)); });
+      var ni = nvs.findIndex(function (v) { return v.id === ctx.vid; });
+      if (ni >= 0 && nvs[ni + 1]) S.collect(ctx.meta.type, nvs[ni + 1].id).then(function (items) {
+        var best = items.length && S.rank(items, ctx.prefs)[0];
+        if (best && best.info.kind === 'torrent') S.prepare(best.stream);
+      });
+    }
     if (d.failed) {
       ctx.startAt = d.position > 0 ? d.position / 1000 : ctx.startAt;
       phone.playerMessage('Source indisponible, essai d\'une autre…');
@@ -535,6 +546,14 @@
       metaEl.textContent = [full.releaseInfo || full.year, full.runtime, full.imdbRating ? '★ ' + full.imdbRating : '', (full.genres || []).slice(0, 3).join(', ')].filter(Boolean).join('  ·  ');
       renderPlay();
       if (isSeries) renderEpisodes();
+      // préchargement : sources prêtes et début du torrent téléchargé avant même d'appuyer sur Lecture
+      if (LOCAL && S.hasTorrentEngine()) {
+        var t = target();
+        S.collect(full.type, vidOf(full, t)).then(function (items) {
+          var best = items.length && S.rank(items, S.prefs.forShow(full.id))[0];
+          if (best && best.info.kind === 'torrent') S.prepare(best.stream);
+        });
+      }
     }).catch(function () { });
   }
   function slim(m) { return { id: m.id, type: m.type, name: m.name, poster: m.poster || '', background: m.background || '', logo: m.logo || '', description: m.description || '', releaseInfo: m.releaseInfo || '' }; }

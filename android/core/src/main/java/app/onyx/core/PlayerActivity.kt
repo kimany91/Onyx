@@ -32,7 +32,9 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
+import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
@@ -68,6 +70,37 @@ class PlayerActivity : Activity() {
     private var selector: DefaultTrackSelector? = null
     private lateinit var menuBtn: TextView
     private val failTimeout = Runnable { finish() }
+    private lateinit var status: TextView
+    private var torrentHash: String? = null
+    private var loadStart = 0L
+    private var everReady = false
+    private var failedOnce = false
+    /** Affiche l'état du chargement et passe à une autre source si rien ne vient. */
+    private val watchdog = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            val waiting = p.playbackState == Player.STATE_BUFFERING || p.playbackState == Player.STATE_IDLE
+            if (waiting) {
+                val secs = (System.currentTimeMillis() - loadStart) / 1000
+                val h = torrentHash
+                if (h != null) {
+                    val st = TorrentEngine.stats(h)
+                    val peers = st.optInt("peers"); val speed = st.optInt("speed")
+                    val txt = when (st.optString("state")) {
+                        "metadata" -> "Recherche de pairs… $peers connecté(s)"
+                        "error" -> "Erreur torrent : " + st.optString("error")
+                        else -> "$peers pairs · " + fmtSpeed(speed) + " · " + (st.optDouble("progress") * 100).toInt() + " %"
+                    }
+                    showStatus(txt)
+                    if (!everReady && ((peers == 0 && secs > 45) || secs > 150 || st.optString("state") == "error")) { fail(if (peers == 0) "aucun pair pour ce torrent" else "torrent trop lent"); return }
+                } else {
+                    showStatus(if (everReady) "Chargement…" else "Connexion à la source…")
+                    if (!everReady && secs > 35) { fail("la source ne répond pas"); return }
+                }
+            } else showStatus(null)
+            main.postDelayed(this, 1000)
+        }
+    }
     private val ticker = object : Runnable {
         override fun run() { report(false); main.postDelayed(this, 2000) }
     }
@@ -146,6 +179,16 @@ class PlayerActivity : Activity() {
         titleBar.addView(menuBtn, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         root.addView(titleBar, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP))
 
+        status = TextView(this).apply {
+            setTextColor(Color.WHITE); textSize = 15f; typeface = Typeface.DEFAULT_BOLD
+            setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
+            background = GradientDrawable().apply { setColor(0x99000000.toInt()); cornerRadius = dp(18f).toFloat() }
+            visibility = View.GONE
+        }
+        root.addView(status, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply {
+            topMargin = dp(110f)
+        })
+
         osd = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
             setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
@@ -173,12 +216,21 @@ class PlayerActivity : Activity() {
         player?.release()
         val headers = HashMap<String, String>()
         o.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> headers[k] = h.optString(k) } }
+        torrentHash = Regex("^http://127\\.0\\.0\\.1:\\d+/stream/([0-9a-f]{40})").find(url)?.groupValues?.get(1)
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent(headers.remove("User-Agent") ?: "Mozilla/5.0 (Linux; Android) Onyx")
             .setAllowCrossProtocolRedirects(true)
-            .setConnectTimeoutMs(20000).setReadTimeoutMs(30000)
+            .setConnectTimeoutMs(15000).setReadTimeoutMs(if (torrentHash != null) 180000 else 30000)
+            .setKeepPostFor302Redirects(true)
             .setDefaultRequestProperties(headers)
+        // peu de nouvelles tentatives : si la source ne marche pas, on passe vite à la suivante
         val sourceFactory = DefaultMediaSourceFactory(DefaultDataSource.Factory(this, http))
+            .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(2))
+        // démarrage rapide : lecture dès ~1,5 s de vidéo en mémoire
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(15000, 60000, 1500, 3000)
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
 
         val audioLang = o.optString("audioLang", deviceLang)
         val subLang = o.optString("subLang", "off")
@@ -196,6 +248,7 @@ class PlayerActivity : Activity() {
         val p = ExoPlayer.Builder(this, renderers)
             .setMediaSourceFactory(sourceFactory)
             .setTrackSelector(selector)
+            .setLoadControl(loadControl)
             .setSeekBackIncrementMs(10000).setSeekForwardIncrementMs(10000)
             .build()
         player = p
@@ -225,13 +278,14 @@ class PlayerActivity : Activity() {
 
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) { everReady = true; showStatus(null) }
                 if (state == Player.STATE_ENDED) { ended = true; finish() }
             }
             override fun onTracksChanged(tracks: Tracks) {
                 if (pendingVo && !tracks.isEmpty) { pendingVo = false; selectAudio("vo", false) }
             }
             override fun onPlayerError(e: PlaybackException) {
-                error = when (e.errorCode) {
+                val msg = when (e.errorCode) {
                     PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS, PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND -> "source indisponible"
                     PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED, PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT -> "connexion impossible"
                     PlaybackException.ERROR_CODE_DECODER_INIT_FAILED, PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
@@ -239,14 +293,7 @@ class PlayerActivity : Activity() {
                     PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED -> "format de fichier non supporté"
                     else -> e.errorCodeName
                 }
-                val cb = events
-                if (cb == null) { finish(); return }
-                // l'interface va essayer automatiquement une autre source (même position)
-                showOsd("Source indisponible, recherche d'une autre…", 6000)
-                cb("onyx-player", JSONObject().put("videoId", videoId).put("failed", true).put("error", error)
-                    .put("position", player?.currentPosition ?: 0).toString())
-                main.removeCallbacks(failTimeout)
-                main.postDelayed(failTimeout, 15000)
+                fail(msg)
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) { report(false) }
         })
@@ -254,6 +301,9 @@ class PlayerActivity : Activity() {
         p.setMediaItem(item, if (start > 0) start else C.TIME_UNSET)
         p.prepare()
         p.playWhenReady = true
+        loadStart = System.currentTimeMillis(); everReady = false; failedOnce = false
+        main.removeCallbacks(watchdog)
+        main.postDelayed(watchdog, 800)
         view.showController()
         main.removeCallbacks(ticker)
         main.postDelayed(ticker, 2000)
@@ -363,6 +413,34 @@ class PlayerActivity : Activity() {
     }
 
     fun message(text: String) { showOsd(text, 3500) }
+
+    private fun fmtSpeed(b: Int): String = when {
+        b >= 1024 * 1024 -> String.format("%.1f Mo/s", b / 1048576.0)
+        b >= 1024 -> (b / 1024).toString() + " ko/s"
+        else -> "0 ko/s"
+    }
+
+    private fun showStatus(t: String?) {
+        if (t == null) { status.visibility = View.GONE; return }
+        status.text = t; status.visibility = View.VISIBLE
+    }
+
+    /** Source illisible : l'interface essaie automatiquement la suivante, au même endroit. */
+    private fun fail(msg: String) {
+        if (failedOnce) return
+        failedOnce = true
+        error = msg
+        main.removeCallbacks(watchdog)
+        val cb = events
+        if (cb == null) { finish(); return }
+        player?.stop()
+        showOsd("Source indisponible ($msg), essai d'une autre…", 6000)
+        showStatus("Recherche d'une autre source…")
+        cb("onyx-player", JSONObject().put("videoId", videoId).put("failed", true).put("error", msg)
+            .put("position", player?.currentPosition ?: 0).toString())
+        main.removeCallbacks(failTimeout)
+        main.postDelayed(failTimeout, 15000)
+    }
 
     fun finishWithError(reason: String?) {
         if (!reason.isNullOrEmpty()) error = reason
@@ -479,6 +557,7 @@ class PlayerActivity : Activity() {
 
     private fun close() {
         main.removeCallbacks(failTimeout)
+        main.removeCallbacks(watchdog)
         main.removeCallbacks(ticker)
         main.removeCallbacks(applySeek)
         report(true)

@@ -72,8 +72,22 @@ Lecture « comme Netflix » (TV, téléphone et PC) :
 - le choix manuel d'un fichier reste disponible (bouton *Sources* sur la TV, « Choisir un fichier
   manuellement » sur le téléphone).
 
-Les sources torrent ont besoin du **serveur de streaming Stremio** (`Paramètres › Serveur de streaming`,
-par défaut `http://127.0.0.1:11470`, c'est-à-dire l'app Stremio ouverte sur le même appareil).
+**Torrents (ex. Comet sans debrid)** : les apps Android TV et téléphone ont leur **propre moteur torrent**
+(libtorrent), comme le serveur de Stremio, sans rien installer d'autre :
+- le fichier est téléchargé dans l'ordre, en commençant par le début et la fin (index MKV/MP4) ;
+  la lecture démarre dès les premiers morceaux, **quelle que soit la taille du fichier** ;
+- dès qu'une fiche est ouverte, Onyx **précharge** la meilleure source (début + fin seulement), donc
+  « Lecture » démarre quasi instantanément ; l'épisode suivant est préchargé à 85 % de l'épisode en cours ;
+- en « Auto », Onyx vise le 1080p pour les torrents (démarrage bien plus rapide qu'un 4K de 15 Go) ;
+- si une source n'a pas de pairs ou ne répond pas, Onyx passe automatiquement à la suivante ;
+- pendant le chargement, le lecteur affiche les pairs connectés, le débit et la progression.
+
+Avec un compte **debrid** (Real-Debrid, AllDebrid, TorBox…) configuré dans Comet / Torrentio, les fichiers
+marqués ⚡ (déjà en cache) démarrent instantanément et sont choisis en priorité ; les ⬇️ (pas en cache) sont évités.
+
+L'audio DTS / TrueHD / E-AC3 est décodé par FFmpeg quand la TV ne sait pas le faire.
+Sur la version Windows, les torrents passent par le serveur de Stremio (`Paramètres › Serveur de streaming`,
+par défaut `http://127.0.0.1:11470`, l'app Stremio ouverte sur le PC).
 
 Onyx n'héberge aucun contenu : tout vient des addons que tu choisis d'installer.
 
