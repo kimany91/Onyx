@@ -8,6 +8,7 @@
     { id: 'home', label: 'Accueil', icon: 'home' },
     { id: 'movies', label: 'Films', icon: 'movie', view: 'catalog', params: { type: 'movie' } },
     { id: 'series', label: 'Séries', icon: 'tv', view: 'catalog', params: { type: 'series' } },
+    { id: 'categories', label: 'Catégories', icon: 'grid' },
     { id: 'library', label: 'Ma liste', icon: 'list' },
     { id: 'addons', label: 'Addons', icon: 'addons' },
     { id: 'connections', label: 'Connexions', icon: 'phone' },

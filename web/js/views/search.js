@@ -40,10 +40,9 @@
     }, 550);
     var bg = Onyx.debounce(function (m) { Onyx.backdrop.set(Onyx.bgOf(m), 'dim'); }, 400);
 
+    // sans texte : les catégories, comme sur Netflix
     function suggestions() {
-      var box = h('div.search-empty');
-      box.appendChild(Onyx.empty('Recherche', 'Tape un titre avec le clavier, la télécommande ou ton téléphone.'));
-      return box;
+      return h('section.row.search-cats', { 'data-remember': '' }, [h('h2.row-title', { text: 'Parcourir les catégories' }), Onyx.genreGrid()]);
     }
 
     show();

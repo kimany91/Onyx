@@ -90,20 +90,27 @@
 
     function buildCatalogs() {
       var cats = S.homeCatalogs().filter(function (c) { return c.type === 'movie' || c.type === 'series' || c.type === 'anime' || c.type === 'tv' || c.type === 'channel'; });
-      if (!cats.length) {
+      // ordre : Au cinéma, 2 catalogues populaires, Classiques, Disney, Marvel, puis le reste
+      var specs = [];
+      var special = (Onyx.Collections && Onyx.Collections.homeRows) || [];
+      if (special[0]) specs.push({ title: special[0].title, load: special[0].load });
+      cats.slice(0, 2).forEach(function (cat) { specs.push(catSpec(cat)); });
+      special.slice(1).forEach(function (r) { specs.push({ title: r.title, load: r.load }); });
+      cats.slice(2, 18).forEach(function (cat) { specs.push(catSpec(cat)); });
+      if (!cats.length && !special.length) {
         track.appendChild(Onyx.empty('Aucun catalogue', 'Ajoute des addons Stremio pour remplir ton accueil.', [Onyx.btn('Gérer les addons', 'addons', function () { Onyx.app.go('addons'); }, 'primary')]));
         return;
       }
       var first = true;
-      cats.slice(0, 18).forEach(function (cat) {
-        var row = Onyx.row(Onyx.catalogTitle(cat));
+      specs.forEach(function (spec) {
+        var row = Onyx.row(spec.title);
         Onyx.skeletonRow(9).forEach(function (s) { row.track.appendChild(s); });
         track.appendChild(row);
-        S.catalog(cat.addon, cat.type, cat.id).then(function (metas) {
+        spec.load().then(function (metas) {
           row.track.innerHTML = '';
           if (!metas.length) { row.remove(); return; }
-          metas.slice(0, 30).forEach(function (m) {
-            m.type = m.type || cat.type;
+          metas.slice(0, 40).forEach(function (m) {
+            m.type = m.type || spec.type || 'movie';
             row.track.appendChild(Onyx.card(m, { onFocus: onCardFocus }));
           });
           if (first && !heroMeta) {
@@ -115,6 +122,9 @@
           }
         }).catch(function () { row.remove(); });
       });
+    }
+    function catSpec(cat) {
+      return { title: Onyx.catalogTitle(cat), type: cat.type, load: function () { return S.catalog(cat.addon, cat.type, cat.id); } };
     }
 
     buildContinue();

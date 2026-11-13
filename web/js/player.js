@@ -303,12 +303,15 @@
     var srcBtn = Onyx.btn('Sources', null, null, 'ghost');
     var nextBtn = Onyx.btn('Épisode suivant', 'play', null, 'ghost');
     var closeBtn = h('button.pl-btn.f', { type: 'button', html: Onyx.icons.close });
+    // flèche retour en haut à gauche : quitte la lecture
+    var backBtn = h('button.pl-back.f', { type: 'button', title: 'Quitter la lecture', html: Onyx.icons.back });
+    backBtn.addEventListener('click', function () { closeHtml5(); });
     var spinner = h('div.pl-spinner', [Onyx.spinner()]);
     var nv = P.ctx ? nextVideo(P.ctx.fullMeta || P.ctx.meta, P.ctx.videoId) : null;
     var root = h('div#player', [
       video,
       h('div.pl-shade'),
-      h('div.pl-top', [h('div.pl-title', { text: title }), sub ? h('div.pl-sub', { text: sub }) : null]),
+      h('div.pl-top', [backBtn, h('div.pl-titles', [h('div.pl-title', { text: title }), sub ? h('div.pl-sub', { text: sub }) : null])]),
       spinner,
       h('div.pl-osd'),
       h('div.pl-bottom', [

@@ -164,12 +164,28 @@ class PlayerActivity : Activity() {
 
         titleBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.TOP
+            gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(32f), dp(24f), dp(32f), dp(40f))
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, intArrayOf(0xCC000000.toInt(), 0x00000000))
             alpha = 0f
             visibility = View.GONE
         }
+        // flèche retour en haut à gauche : quitte la lecture
+        val backBtn = TextView(this).apply {
+            text = "←"
+            textSize = 24f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            contentDescription = "Quitter la lecture"
+            isFocusable = true; isClickable = true
+            background = StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) })
+                addState(intArrayOf(android.R.attr.state_pressed), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(Color.WHITE) })
+                addState(intArrayOf(), GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(0x66000000); setStroke(dp(1f), 0x55FFFFFF) })
+            }
+            setTextColor(android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+                intArrayOf(Color.BLACK, Color.BLACK, Color.WHITE)))
+            setOnClickListener { finish() }
+        }
+        titleBar.addView(backBtn, LinearLayout.LayoutParams(dp(48f), dp(48f)).apply { rightMargin = dp(16f) })
         val texts = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         titleText = TextView(this).apply { setTextColor(Color.WHITE); textSize = 22f; typeface = Typeface.DEFAULT_BOLD; maxLines = 1 }
         subText = TextView(this).apply { setTextColor(0xFFB0B0B8.toInt()); textSize = 15f; maxLines = 1 }

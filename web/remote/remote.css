@@ -208,3 +208,12 @@ body.local .no-tv:not([style*="none"]) ~ .seek-row, body.local .no-tv:not([style
 .choose.center small { color: var(--muted); margin: 4px 0 16px; font-size: 13px; }
 .big-gem.spin svg { width: 64px; height: 64px; animation: gempulse 1.4s ease-in-out infinite; margin-bottom: 10px; }
 @keyframes gempulse { 0%,100% { transform: scale(.9); opacity: .8; } 50% { transform: scale(1.05); opacity: 1; } }
+
+/* Catégories */
+.row.cats h2 { margin-bottom: 8px; }
+.track.genres { scroll-snap-type: none; padding-bottom: 4px; }
+.genre-chip { flex: none; height: 40px; padding: 0 16px; margin-right: 8px; border-radius: 20px; font-weight: 800; font-size: 14px; color: #fff; text-shadow: 0 1px 4px rgba(0,0,0,.4); }
+.genre-chip:active { transform: scale(.95); }
+.genre-head { display: flex; flex-direction: column; margin: 4px 0 14px; }
+.genre-back { align-self: flex-start; color: var(--muted); font-weight: 700; font-size: 14px; padding: 6px 0; }
+.genre-head h1 { font-size: 28px; font-weight: 800; }

@@ -57,6 +57,13 @@ Le téléphone et la TV doivent être sur le **même Wi-Fi**. Depuis le téléph
 - **Addons › Ajouter par URL** : colle l'URL `…/manifest.json` d'un addon, exactement comme dans Stremio.
 - **Addons › Catalogue d'addons / Communauté** : le catalogue officiel de Stremio.
 
+Accueil et navigation (TV et téléphone) :
+- rangées **Au cinéma** (films sortis ces 5 derniers mois, mise à jour automatique), **Les Classiques**,
+  **Disney** et **Marvel**, en plus des catalogues de tes addons ;
+- **Catégories** comme sur Netflix (Action, Comédie, Horreur, Famille, Animation…) : dans le menu
+  *Catégories* et la *Recherche* sur la TV, en haut de l'onglet *Explorer* sur le téléphone ;
+- pendant la lecture, **flèche retour en haut à gauche** pour quitter le film.
+
 Lecture « comme Netflix » (TV, téléphone et PC) :
 - tu appuies sur **Lecture** ou sur un épisode : Onyx récupère les fichiers de tous tes addons et
   **choisit tout seul** celui qui correspond à ta langue et à ta qualité (pas de liste à trier) ;

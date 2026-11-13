@@ -359,7 +359,7 @@
   }
   function rowEl(title, metas, type) {
     var track = h('div.track');
-    metas.slice(0, 30).forEach(function (m) {
+    metas.slice(0, 50).forEach(function (m) {
       m.type = m.type || type;
       var c = h('button.card', [h('img', { src: poster(m), loading: 'lazy', alt: '', onerror: function () { this.style.opacity = 0; } }), h('span', { text: m.name })]);
       c.addEventListener('click', function () { openDetail(m); });
@@ -382,15 +382,48 @@
     });
     return track.children.length ? h('section.row', [h('h2', { text: 'Reprendre la lecture' }), track]) : null;
   }
+  /* Catégories (comme sur Netflix) : pastilles colorées en haut de l'Explorer */
+  function genreChips() {
+    var track = h('div.track.genres');
+    Onyx.Collections.GENRES.forEach(function (g) {
+      var c = h('button.genre-chip', { text: g.label, style: { background: 'linear-gradient(135deg, ' + g.color + ', rgba(0,0,0,.35) 160%)' } });
+      c.addEventListener('click', function () { renderGenre(g); });
+      track.appendChild(c);
+    });
+    return h('section.row.cats', [h('h2', { text: 'Catégories' }), track]);
+  }
+  function renderGenre(g) {
+    searchInput.value = '';
+    browse.innerHTML = '';
+    var back = h('button.genre-back', { html: '&#8249; Catégories', onclick: function () { renderHome(); window.scrollTo(0, 0); } });
+    browse.appendChild(h('div.genre-head', [back, h('h1', { text: g.label })]));
+    var holder = h('div.loading', [h('i'), h('i'), h('i')]);
+    browse.appendChild(holder);
+    window.scrollTo(0, 0);
+    Onyx.Collections.genre(g.id).then(function (rows) {
+      holder.remove();
+      rows.forEach(function (r) { browse.appendChild(rowEl(r.title, r.metas, 'movie')); });
+      if (!rows.length) browse.appendChild(h('p.empty', { text: 'Aucun titre dans cette catégorie.' }));
+    });
+  }
+
   function renderHome() {
     browse.innerHTML = '';
     if (LOCAL) { var cr = continueRow(); if (cr) browse.appendChild(cr); }
+    browse.appendChild(genreChips());
     if (!S.addons.length) { browse.appendChild(h('p.empty', { text: LOCAL ? 'Aucun addon : ajoute-en depuis l\'onglet Addons.' : online ? 'Aucun addon sur la TV.' : 'Connexion à la TV…' })); return; }
-    S.homeCatalogs().slice(0, 10).forEach(function (cat) {
+    // ordre : Au cinéma, 2 catalogues populaires, Classiques, Disney, Marvel, puis le reste
+    var cats = S.homeCatalogs();
+    var special = Onyx.Collections.homeRows;
+    var specs = [{ title: special[0].title, load: special[0].load }];
+    cats.slice(0, 2).forEach(function (cat) { specs.push({ title: label(cat), type: cat.type, load: function () { return S.catalog(cat.addon, cat.type, cat.id); } }); });
+    special.slice(1).forEach(function (r) { specs.push({ title: r.title, load: r.load }); });
+    cats.slice(2, 10).forEach(function (cat) { specs.push({ title: label(cat), type: cat.type, load: function () { return S.catalog(cat.addon, cat.type, cat.id); } }); });
+    specs.forEach(function (spec) {
       var holder = h('div');
       browse.appendChild(holder);
-      S.catalog(cat.addon, cat.type, cat.id).then(function (metas) {
-        if (metas.length) holder.replaceWith(rowEl(label(cat), metas, cat.type));
+      spec.load().then(function (metas) {
+        if (metas.length && holder.isConnected) holder.replaceWith(rowEl(spec.title, metas, spec.type || 'movie'));
       }).catch(function () { });
     });
   }
