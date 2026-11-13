@@ -72,6 +72,12 @@ class MainActivity : Activity() {
 
         // Lien direct (QR code scanné avec l'appareil photo puis « ouvrir avec Onyx »)
         intent?.data?.let { accept(it.toString()) }
+        // après une mise à jour : on oublie l'ancienne interface gardée en mémoire
+        val vp = getSharedPreferences("onyx-webcache", MODE_PRIVATE)
+        if (vp.getInt("v", -1) != BuildConfig.VERSION_CODE) {
+            web.clearCache(true)
+            vp.edit().putInt("v", BuildConfig.VERSION_CODE).apply()
+        }
         web.loadUrl(HOME)
         Updater.startPeriodic(this, "onyx-remote.apk", BuildConfig.VERSION_CODE, ::onUpdate)
     }

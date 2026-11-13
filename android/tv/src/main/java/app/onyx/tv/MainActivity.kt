@@ -85,6 +85,12 @@ class MainActivity : Activity() {
         }
         web.addJavascriptInterface(OnyxBridge(this), "OnyxNative")
         setContentView(web)
+        // après une mise à jour : on oublie l'ancienne interface gardée en mémoire
+        val vp = getSharedPreferences("onyx-webcache", MODE_PRIVATE)
+        if (vp.getInt("v", -1) != BuildConfig.VERSION_CODE) {
+            web.clearCache(true)
+            vp.edit().putInt("v", BuildConfig.VERSION_CODE).apply()
+        }
         web.loadUrl(HOME)
         web.requestFocus()
         Updater.startPeriodic(this, "onyx-tv.apk", BuildConfig.VERSION_CODE) { emit("onyx-update", it.toString()) }
