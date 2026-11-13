@@ -77,11 +77,9 @@
     open: function (t) { tone(784, t, 0.18, 0.045, 'sine', 1175); tone(1568, t + 0.03, 0.14, 0.015, 'sine'); },
     // lancement d'un film : souffle ascendant + accord lumineux qui gonfle
     launch: function (t) {
-      whoosh(t, 1.5, 300, 4200, 0.16);
-      [523.25, 659.25, 783.99, 987.77, 1318.5].forEach(function (f, i) {
-        tone(f, t + 0.08 + i * 0.045, 1.7, 0.045 - i * 0.004, 'sine', null, 0.32);
-      });
-      tone(130.8, t, 1.2, 0.07, 'sine', null, 0.25); // assise grave
+      // lancement : note grave et douce, très courte, à peine soulignée (pas d'effet « spectacle »)
+      tone(392, t, 0.55, 0.05, 'sine', null, 0.02);
+      tone(587.3, t + 0.06, 0.7, 0.03, 'sine', null, 0.03);
     },
     // impossible / bord de liste : bruit sourd et feutré
     bump: function (t) { tone(220, t, 0.09, 0.04, 'triangle', 180); },

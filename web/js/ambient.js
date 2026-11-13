@@ -232,8 +232,9 @@
       el.id = 'launch';
       el.style.setProperty('--lc', css(pal));
       el.style.setProperty('--lc-soft', css(pal, 0.45));
-      el.innerHTML = '<div class="lc-bg"></div><div class="lc-glow"></div><div class="lc-ring"></div>' +
-        '<div class="lc-center"><div class="lc-title"></div></div><div class="lc-sweep"></div><div class="lc-black"></div>';
+      // transition sobre : l'image s'ouvre depuis la carte, lent mouvement de caméra, logo en fondu
+      el.innerHTML = '<div class="lc-bg"></div><div class="lc-shade"></div>' +
+        '<div class="lc-center"><div class="lc-title"></div></div><div class="lc-black"></div>';
       var bg = el.querySelector('.lc-bg');
       if (url) bg.style.backgroundImage = 'url("' + url + '")';
       var title = el.querySelector('.lc-title');
@@ -259,9 +260,9 @@
         if (launching === token) launching = null;
         done();
         // l'écran noir reste un instant le temps que l'écran de chargement apparaisse
-        setTimeout(function () { el.classList.add('out'); setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 700); }, 450);
+        setTimeout(function () { el.classList.add('out'); setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 600); }, 350);
       }
-      setTimeout(finish, 1750);
+      setTimeout(finish, 1500);
       return { cancel: function () { finished = true; if (el.parentNode) el.parentNode.removeChild(el); } };
     },
     active: function () { return !!launching; }

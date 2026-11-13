@@ -76,8 +76,8 @@ Accueil et navigation (TV et téléphone) :
   Un film sans lien évident n'a pas d'effet inventé : seulement ses couleurs et ses lumières ;
 - **effet de profondeur (TV)** : l'IA de Google (ML Kit) découpe le sujet de l'image du film ; il flotte devant
   le décor légèrement flouté, les deux plans dérivant à des vitesses différentes ;
-- **lancement façon console** : l'image du film s'ouvre depuis la carte en plein écran, le logo apparaît dans un
-  éclat de lumière, pendant que le chargement a déjà commencé ;
+- **lancement d'un film** : transition sobre, l'image du film s'ouvre depuis la carte en plein écran avec un lent
+  mouvement de caméra et le logo en fondu, pendant que le chargement a déjà commencé ;
 - **sons d'interface** (créés dans l'app) pour la navigation, la validation, le retour et le lancement.
   Sons, ambiance et animation de lancement se désactivent dans *Paramètres › Application*.
 - pendant la lecture, **flèche retour en haut à gauche** pour quitter le film.
