@@ -23,6 +23,8 @@ class OnyxApp : Application() {
         instance = this
         PlayerActivity.events = { name, json -> MainActivity.emit(name, json) }
         Thread { try { TorrentEngine.init(this) } catch (_: Throwable) { } }.start()
+        // ancien effet de découpage (retiré) : on libère la place qu'il occupait
+        Thread { try { java.io.File(cacheDir, "cutouts").deleteRecursively() } catch (_: Throwable) { } }.start()
     }
 
     /** Démarre le serveur de connexion (ports 8765 à 8775). */

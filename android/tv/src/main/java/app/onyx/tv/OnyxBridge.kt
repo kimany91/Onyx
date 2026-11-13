@@ -48,17 +48,6 @@ class OnyxBridge(private val activity: MainActivity) {
 
     @JavascriptInterface fun torrentStats(hash: String): String = TorrentEngine.stats(hash).toString()
 
-    /** Découpe le sujet de l'image d'un film (IA) ; réponse via l'événement « onyx-cutout » */
-    @JavascriptInterface fun cutout(url: String) {
-        Cutout.request(app, url) { fg, bg, cx, cy ->
-            val base = "https://appassets.androidplatform.net/cutouts/"
-            MainActivity.emit("onyx-cutout", org.json.JSONObject().put("url", url)
-                .put("src", if (fg != null) base + fg else org.json.JSONObject.NULL)
-                .put("bg", if (bg != null) base + bg else org.json.JSONObject.NULL)
-                .put("cx", cx.toDouble()).put("cy", cy.toDouble()).toString())
-        }
-    }
-
     @JavascriptInterface fun freeSpace(): String { TorrentEngine.init(app); return TorrentEngine.freeSpace().toString() }
 
 

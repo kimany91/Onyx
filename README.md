@@ -74,10 +74,7 @@ Accueil et navigation (TV et téléphone) :
   Jurassic Park, noir et blanc + manteau rouge de La Liste de Schindler, Anneau du Seigneur des anneaux…,
   web/js/fx-signatures.js). Chaque fond reçoit aussi des lumières posées sur les zones claires de sa propre image.
   Un film sans lien évident n'a pas d'effet inventé : seulement ses couleurs et ses lumières ;
-- **effet de profondeur (TV)** : l'IA de Google (ML Kit) détoure le sujet principal de l'image du film en haute
-  résolution (bords resserrés et adoucis, couleurs d'origine) et l'efface du décor (zone reconstruite). Le sujet
-  s'avance lentement vers la caméra autour de son propre centre pendant que le décor reste presque fixe :
-  vraie parallaxe, sans contour ni sujet en double ;
+- **image du film vivante** : lent mouvement de caméra (zoom et léger glissement) sur l'image de fond ;
 - **lancement d'un film** : transition sobre, l'image du film s'ouvre depuis la carte en plein écran avec un lent
   mouvement de caméra et le logo en fondu, pendant que le chargement a déjà commencé ;
 - **sons d'interface** (créés dans l'app) pour la navigation, la validation, le retour et le lancement.

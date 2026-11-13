@@ -19,15 +19,11 @@
       var img = new Image();
       // même mode de chargement que l'ambiance (couleurs du film) : une seule requête, partagée par le cache
       img.crossOrigin = 'anonymous';
-      depthOff(root);
       img.onload = function () {
         if (bd.url !== url) return;
         next.style.backgroundImage = 'url("' + url + '")';
         next.classList.add('show');
         prev.classList.remove('show');
-        // effet de profondeur : le sujet de l'image est découpé par l'IA (sur la TV) puis flotte devant le décor
-        var nat = window.OnyxNative;
-        if (nat && typeof nat.cutout === 'function' && !/dim|plain/.test(root.className)) { try { nat.cutout(url); } catch (e) { } }
       };
       img.onerror = function () {
         if (img.crossOrigin) { img.crossOrigin = null; img.removeAttribute('crossorigin'); img.src = url; }
@@ -35,42 +31,6 @@
       img.src = url;
     }
   };
-  function depthOff(root) {
-    var fg = root.querySelector('.bd-fg');
-    if (fg) fg.classList.remove('on');
-    root.classList.remove('depth');
-  }
-  /* Effet de profondeur : décor sans le sujet (reconstruit) + sujet détouré par-dessus.
-     Les deux plans bougent à des vitesses différentes : vraie parallaxe, sans sujet en double. */
-  window.addEventListener('onyx-cutout', function (e) {
-    var d = e.detail; try { d = JSON.parse(d); } catch (x) { }
-    var root = Onyx.$('#backdrop');
-    if (!root || !d || !d.src || !d.bg || d.url !== bd.url || /dim|plain/.test(root.className)) return;
-    var layer = Onyx.$$('.bd-layer', root)[bd.idx];
-    if (!layer) return;
-    var fg = root.querySelector('.bd-fg');
-    if (!fg) { fg = document.createElement('div'); fg.className = 'bd-fg'; root.insertBefore(fg, root.querySelector('.bd-shade')); }
-    var n = 0, ready = function () {
-      if (++n < 2 || d.url !== bd.url) return;
-      // même image au départ : on remplace le décor et on pose le sujet dans la même image (aucun saut visible)
-      layer.style.backgroundImage = 'url("' + d.bg + '")';
-      fg.style.backgroundImage = 'url("' + d.src + '")';
-      root.classList.add('depth');
-      fg.classList.add('on');
-    };
-    var fgImg = null;
-    [d.bg, d.src].forEach(function (u, i) { var im = new Image(); im.onload = function () { if (i) fgImg = im; ready(); }; im.src = u; });
-    // le sujet grossit autour de son propre centre (comme une caméra qui avance) : il recouvre toujours sa place
-    function origin() {
-      if (!fgImg) return;
-      var W = fg.clientWidth, H = fg.clientHeight, iw = fgImg.naturalWidth, ih = fgImg.naturalHeight;
-      if (!W || !H || !iw || !ih) return;
-      var sc = Math.max(W / iw, H / ih), dw = iw * sc, ox = (W - dw) / 2; // background : cover, centré en haut
-      fg.style.transformOrigin = Math.round(ox + (d.cx || 0.5) * dw) + 'px ' + Math.round((d.cy || 0.5) * ih * sc) + 'px';
-    }
-    var prevReady = ready;
-    ready = function () { prevReady(); origin(); };
-  });
   Onyx.bgOf = function (meta) {
     if (!meta) return null;
     if (meta.background) return meta.background;
