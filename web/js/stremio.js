@@ -63,10 +63,26 @@
     S.listeners.forEach(function (f) { try { f(S.addons); } catch (e) { } });
   }
 
+  /* Adresses d'addons connues pour ne plus renvoyer de sources → remplacées par celle qui marche */
+  var FIX_URLS = {
+    'https://cometfortheweebs.midnightignite.me/stremio/manifest.json': 'https://cometfortheweebs.midnightignite.me/manifest.json',
+    'https://comet.elfhosted.com/manifest.json': 'https://cometfortheweebs.midnightignite.me/manifest.json'
+  };
+  function fixUrls(list) {
+    var fixed = false;
+    list.forEach(function (a) { if (a && FIX_URLS[a.transportUrl]) { a.transportUrl = FIX_URLS[a.transportUrl]; fixed = true; } });
+    // pas de doublon après correction
+    var seen = {};
+    var out = list.filter(function (a) { if (!a || seen[a.transportUrl]) return false; seen[a.transportUrl] = 1; return true; });
+    return { list: out, fixed: fixed || out.length !== list.length };
+  }
+
   S.init = function () {
     var stored = S.persist ? load('addons', null) : null;
     if (stored && stored.length) {
-      S.addons = stored;
+      var fx = fixUrls(stored);
+      S.addons = fx.list;
+      if (fx.fixed) changed();
       // rafraîchit les manifests en arrière-plan
       S.addons.forEach(function (a) {
         S.fetchJSON(a.transportUrl, { ttl: 0, timeout: 10000 }).then(function (m) {
@@ -86,6 +102,7 @@
 
   S.install = function (url) {
     url = S.normalizeUrl(url);
+    if (FIX_URLS[url]) url = FIX_URLS[url];
     return S.fetchJSON(url, { ttl: 0 }).then(function (m) {
       if (!m || !m.id) throw new Error('Manifest invalide');
       var existing = S.addons.filter(function (a) { return a.transportUrl === url || a.manifest.id === m.id; })[0];
@@ -107,7 +124,7 @@
     changed();
   };
   S.setAddons = function (list) {
-    S.addons = (list || []).filter(function (a) { return a && a.transportUrl && a.manifest; });
+    S.addons = fixUrls((list || []).filter(function (a) { return a && a.transportUrl && a.manifest; })).list;
     changed();
   };
   S.isInstalled = function (url) {
@@ -240,7 +257,7 @@
 
   /* Addons conseillés, en tête du catalogue */
   S.FEATURED = [
-    { url: 'https://cometfortheweebs.midnightignite.me/stremio/manifest.json', note: 'Sources torrent et debrid très rapides (films, séries et animes). Pour tes réglages (debrid, langues), configure-le sur cometfortheweebs.midnightignite.me puis colle ton lien avec « Ajouter par URL ».' },
+    { url: 'https://cometfortheweebs.midnightignite.me/manifest.json', note: 'Sources torrent très rapides (films, séries et animes), sans réglage. Pour ajouter un debrid ou filtrer les langues, configure-le sur cometfortheweebs.midnightignite.me/configure puis colle ton lien avec « Ajouter par URL ».' },
     { url: 'https://anime-kitsu.strem.fun/manifest.json', note: 'Catalogues et fiches d\'animes (Kitsu).' },
     { url: 'https://099757617587-watch-next.baby-beamup.club/manifest.json', note: 'Suggestions « À voir ensuite » sur la fiche de chaque film ou série.' }
   ];

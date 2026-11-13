@@ -81,7 +81,7 @@ Accueil et navigation (TV et téléphone) :
   Sons, ambiance et animation de lancement se désactivent dans *Paramètres › Application*.
 - pendant la lecture, **flèche retour en haut à gauche** pour quitter le film.
 
-Addons conseillés (en tête du catalogue sur la TV, dans « Plus » sur le téléphone) : **Comet** (instance cometfortheweebs, sources torrent/debrid
+Addons conseillés (en tête du catalogue sur la TV, dans « Plus » sur le téléphone) : **Comet** (https://cometfortheweebs.midnightignite.me/manifest.json, sources torrent/debrid
 rapides ; pour tes réglages, colle ton lien Comet personnel), **Anime Kitsu** (animes) et **Watch Next** (rangée
 « À voir ensuite » sur chaque fiche ; ses liens ne sont jamais pris pour des vidéos).
 
