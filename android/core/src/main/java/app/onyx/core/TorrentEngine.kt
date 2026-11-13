@@ -64,6 +64,7 @@ object TorrentEngine {
     const val PREWARM = 1
     const val STREAM = 2
     private const val MAX_ENTRIES = 14
+    private const val BLOCK = 16L * 1024
 
     class Entry(val hash: String, val fileHint: Int, val filename: String?, val trackers: List<String>) {
         /** Poignée disponible dès l'ajout (avant les métadonnées). */
@@ -83,6 +84,10 @@ object TorrentEngine {
         /** Lecture en cours sur le serveur local (une seule à la fois par torrent). */
         @Volatile var stream: InputStream? = null
         @Volatile var streamPos = 0L
+        /** Blocs (16 ko) déjà reçus des morceaux incomplets : servis sans attendre le morceau entier. */
+        val blocks = ConcurrentHashMap<Int, ConcurrentHashMap<Int, Long>>()
+        /** Lectures passives en cours (analyse de l'intro). */
+        val readers = java.util.concurrent.atomic.AtomicInteger()
         /** Morceaux déjà rendus prioritaires (évite des milliers d'appels inutiles). */
         val prioritized: MutableSet<Int> = ConcurrentHashMap.newKeySet()
         val ready = CountDownLatch(1)
@@ -126,7 +131,7 @@ object TorrentEngine {
         sp.setBoolean(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true)
         // plus de demandes en parallèle par pair → la connexion est mieux remplie
         sp.setInteger(settings_pack.int_types.max_out_request_queue.swigValue(), 1500)
-        sp.setInteger(settings_pack.int_types.request_queue_time.swigValue(), 5)
+        sp.setInteger(settings_pack.int_types.request_queue_time.swigValue(), 3)
         sp.setInteger(settings_pack.int_types.whole_pieces_threshold.swigValue(), 5)
         sp.setBoolean(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true)
         sp.setBoolean(settings_pack.bool_types.strict_end_game_mode.swigValue(), false)
@@ -153,6 +158,31 @@ object TorrentEngine {
             s.start(saved)
             s.applySettings(sp)
         } else s.start(SessionParams(sp))
+        // alertes « bloc reçu » : la lecture peut servir chaque bloc de 16 ko dès son arrivée
+        try {
+            val cur = s.settings()
+            val mask = cur.getInteger(settings_pack.int_types.alert_mask.swigValue()) or
+                org.libtorrent4j.swig.alert.block_progress_notification.to_int() or
+                org.libtorrent4j.swig.alert.status_notification.to_int()
+            s.applySettings(SettingsPack().apply { setInteger(settings_pack.int_types.alert_mask.swigValue(), mask) })
+        } catch (_: Throwable) { }
+        s.addListener(object : org.libtorrent4j.AlertListener {
+            override fun types() = intArrayOf(org.libtorrent4j.alerts.AlertType.BLOCK_FINISHED.swig(), org.libtorrent4j.alerts.AlertType.PIECE_FINISHED.swig(), org.libtorrent4j.alerts.AlertType.HASH_FAILED.swig())
+            override fun alert(a: org.libtorrent4j.alerts.Alert<*>) {
+                try {
+                    when (a) {
+                        is org.libtorrent4j.alerts.BlockFinishedAlert -> {
+                            val e = blockEntry(a.handle()) ?: return
+                            e.blocks.getOrPut(a.pieceIndex()) { ConcurrentHashMap() }[a.blockIndex()] = System.currentTimeMillis()
+                        }
+                        is org.libtorrent4j.alerts.PieceFinishedAlert -> blockEntry(a.handle())?.blocks?.remove(a.pieceIndex())
+                        // morceau corrompu : il sera retéléchargé, ses blocs ne sont plus fiables
+                        is org.libtorrent4j.alerts.HashFailedAlert -> blockEntry(a.handle())?.blocks?.remove(a.pieceIndex())
+                        else -> { }
+                    }
+                } catch (_: Throwable) { }
+            }
+        })
         session = s
         Thread {
             while (true) {
@@ -419,6 +449,12 @@ object TorrentEngine {
         }
     }
 
+    /** Torrent concerné par une alerte de bloc. */
+    private fun blockEntry(h: TorrentHandle?): Entry? {
+        if (h == null) return null
+        return entries[h.infoHash().toHex()]
+    }
+
     /** État d'un torrent : seeds annoncés, pairs connectés, débit, progression du fichier. */
     fun stats(hash: String): JSONObject {
         val o = JSONObject()
@@ -504,7 +540,9 @@ object TorrentEngine {
                 return resp
             }
             val len = end - start + 1
-            val body: InputStream = if (session.method == Method.HEAD) "".byteInputStream() else PieceStream(e, start, end)
+            // « passive » : lecture d'analyse (détection de l'intro) qui ne touche pas aux priorités du film
+            val passive = session.parameters?.get("passive")?.firstOrNull() == "1"
+            val body: InputStream = if (session.method == Method.HEAD) "".byteInputStream() else PieceStream(e, start, end, passive)
             val resp = newFixedLengthResponse(if (range != null) Response.Status.PARTIAL_CONTENT else Response.Status.OK, mime, body, len)
             resp.addHeader("Accept-Ranges", "bytes")
             if (range != null) resp.addHeader("Content-Range", "bytes $start-$end/$size")
@@ -513,7 +551,7 @@ object TorrentEngine {
     }
 
     /** Lit le fichier au fur et à mesure que les morceaux arrivent (bloque tant qu'ils manquent). */
-    private class PieceStream(val e: Entry, var pos: Long, val end: Long) : InputStream() {
+    private class PieceStream(val e: Entry, var pos: Long, val end: Long, val passive: Boolean = false) : InputStream() {
         private var raf: RandomAccessFile? = null
         private val ti = e.info!!
         private val pl = ti.pieceLength().toLong()
@@ -528,11 +566,14 @@ object TorrentEngine {
         /** Écart réel entre deux morceaux à la vitesse de lecture (ms), borné pour rester urgent. */
         private val spacing = ((pl * 1000 / rate).toInt()).coerceIn(80, 1500)
 
-        init {
+        init { if (!passive) startActive() else e.readers.incrementAndGet() }
+
+        private fun startActive() {
             val th = e.handle
             val prev = e.stream
             // saut dans le film : les anciennes échéances (déjà dépassées, donc « ultra urgentes »)
             // passeraient avant la nouvelle position → on les efface et on ferme l'ancienne lecture
+            // (liste urgente vidée puis reremplie : libtorrent annule aussi les demandes non urgentes en cours)
             if (th != null && (prev == null || kotlin.math.abs(pos - e.streamPos) > 32L * 1024 * 1024)) {
                 try { th.clearPieceDeadlines() } catch (_: Exception) { }
             }
@@ -553,30 +594,77 @@ object TorrentEngine {
             val th = e.handle ?: throw IOException("torrent fermé")
             val piece = ((fileStart + pos) / pl).toInt()
             // fenêtre glissante (~90 s de film) devant la lecture, échéances rafraîchies à chaque morceau
-            if (piece != lastWindowPiece) { lastWindowPiece = piece; window(e, pos, ahead, 0, false, spacing) }
+            if (!passive && piece != lastWindowPiece) { lastWindowPiece = piece; window(e, pos, ahead, 0, false, spacing) }
             var waited = 0
+            var ready = -1L
+            var lastGot = -1; var stallSince = 0
             while (!th.havePiece(piece)) {
                 if (closed || e.cancelled || !th.isValid) throw IOException("lecture interrompue")
+                // morceau incomplet : les blocs déjà reçus sont servis tout de suite
+                // (sinon il faut attendre tout le morceau, 4 à 16 Mo sur un vrai film, avant la première image)
+                ready = readyBytes(piece, pos)
+                if (ready > 0) break
                 Thread.sleep(30)
-                // morceau bloquant : on le redemande en urgence toutes les 2 s
                 waited += 30
-                if (waited % 2000 < 30) try { th.setPieceDeadline(piece, 0) } catch (_: Exception) { }
+                // lecture d'analyse : on attend sans rien exiger, et on abandonne si rien ne vient
+                if (passive) { if (waited > 90_000) throw IOException("délai dépassé"); continue }
+                // morceau bloquant qui n'avance plus depuis 1,5 s : libtorrent l'a « oublié » (vu en test : la moitié
+                // des blocs reçus, le reste jamais redemandé, il passe aux morceaux suivants). On annule tout
+                // et on redemande à partir d'ici : la liste urgente vide déclenche l'annulation des autres demandes.
+                val got = e.blocks[piece]?.size ?: 0
+                if (got != lastGot) { lastGot = got; stallSince = waited }
+                if (waited - stallSince >= 1500) {
+                    stallSince = waited
+                    try { th.clearPieceDeadlines() } catch (_: Exception) { }
+                    window(e, pos, 16L * 1024 * 1024, 0, true, 60)
+                    window(e, pos, ahead, 0, false, spacing)
+                }
             }
             e.lastUse = System.currentTimeMillis()
             val pieceEndInFile = (piece + 1) * pl - fileStart
-            val n = minOf(len.toLong(), end - pos + 1, pieceEndInFile - pos).toInt()
+            val n = minOf(len.toLong(), end - pos + 1, pieceEndInFile - pos, if (ready > 0) ready else Long.MAX_VALUE).toInt()
             val f = raf ?: RandomAccessFile(path, "r").also { raf = it }
             f.seek(pos)
-            val r = f.read(b, off, n)
+            var r = f.read(b, off, n)
+            // bloc annoncé mais pas encore écrit sur le disque (TV lente) : que des zéros → on relit un peu plus tard
+            var tries = 0
+            while (ready > 0 && r >= 4096 && tries < 40 && allZero(b, off, r) && !th.havePiece(piece)) {
+                if (closed) throw IOException("lecture interrompue")
+                Thread.sleep(50); tries++
+                f.seek(pos); r = f.read(b, off, n)
+            }
             if (r <= 0) { Thread.sleep(20); return 0 }
             pos += r
-            if (e.stream === this) e.streamPos = pos
+            if (!passive && e.stream === this) e.streamPos = pos
             return r
         }
 
+        private fun allZero(b: ByteArray, off: Int, n: Int): Boolean {
+            for (i in off until off + n) if (b[i].toInt() != 0) return false
+            return true
+        }
+
+        /** Octets lisibles d'affilée à partir de pos dans un morceau incomplet (blocs reçus depuis > 150 ms). */
+        private fun readyBytes(piece: Int, pos: Long): Long {
+            val got = e.blocks[piece] ?: return 0
+            val inPiece = fileStart + pos - piece.toLong() * pl
+            var blk = (inPiece / BLOCK).toInt()
+            val limit = System.currentTimeMillis() - 150
+            var n = 0L
+            while (true) {
+                val t = got[blk] ?: break
+                if (t > limit) break
+                n += (blk + 1L) * BLOCK - maxOf(inPiece, blk.toLong() * BLOCK)
+                blk++
+                if (blk.toLong() * BLOCK >= pl) break
+            }
+            return n
+        }
+
         override fun close() {
+            if (passive && !closed) e.readers.decrementAndGet()
             closed = true
-            if (e.stream === this) e.stream = null
+            if (!passive && e.stream === this) e.stream = null
             try { raf?.close() } catch (_: Exception) { }
         }
     }
