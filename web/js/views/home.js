@@ -178,11 +178,32 @@
       var ids = Onyx.Collections.GENRES.map(function (g) { return g.id; }), i = 0;
       (function next() { if (i >= ids.length) return; Onyx.Collections.genre(ids[i++]).then(function () { setTimeout(next, 250); }, function () { setTimeout(next, 250); }); })();
     }
+    // choix en attente (on vient de se déplacer sur une catégorie dans la barre)
+    var pending = null;
+    function applyPending() {
+      clearTimeout(pickT);
+      var g = pending; pending = null;
+      if (!g) return;
+      if (g === 'home') showHome(); else showGenre(g.id);
+    }
     function buildGenreBar() {
       if (!Onyx.genreRow) return;
       genreBar = Onyx.genreRow({
         // télécommande : passer sur une catégorie suffit (petit délai pour pouvoir la traverser sans tout recharger)
-        onFocus: function (g) { prefetchGenres(); clearTimeout(pickT); pickT = setTimeout(function () { if (g) showGenre(g.id); else showHome(); }, g ? 450 : 200); },
+        onFocus: function (g, card) {
+          prefetchGenres();
+          var fromBar = Onyx.focus.prev && genreBar.contains(Onyx.focus.prev);
+          if (!fromBar) {
+            // on arrive dans la barre par le haut ou par le bas : la catégorie ne change pas,
+            // le focus se pose sur la catégorie déjà choisie
+            var picked = Onyx.$('.genre-card.picked', genreBar);
+            if (picked && picked !== card) setTimeout(function () { if (Onyx.focus.cur === card) Onyx.focus.set(picked); }, 0);
+            return;
+          }
+          clearTimeout(pickT);
+          pending = g || 'home';
+          pickT = setTimeout(applyPending, g ? 450 : 200);
+        },
         onPick: function (g) {
           if (g) showGenre(g.id); else showHome();
           var first = g && genreRows[0] && Onyx.$('.card.f', genreRows[0]);
@@ -223,6 +244,8 @@
     // focus sur les boutons : rails remis en haut
     var onFocusBus = function (f) {
       if (!el.isConnected) return;
+      // on quitte la barre juste après avoir choisi une catégorie : on l'applique tout de suite
+      if (pending && genreBar && !genreBar.contains(f)) applyPending();
       el.classList.toggle('at-top', actions.contains(f));
       if (actions.contains(f)) { Onyx.focus.resetTrack(track); Onyx.$$('.active-row', track).forEach(function (r) { r.classList.remove('active-row'); }); }
     };

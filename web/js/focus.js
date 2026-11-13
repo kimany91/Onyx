@@ -30,6 +30,7 @@
     if (!el) return;
     opts = opts || {};
     var prev = F.cur;
+    F.prev = prev;
     if (prev && prev !== el) {
       prev.classList.remove('focused');
       prev.dispatchEvent(new CustomEvent('unfocus'));
@@ -136,8 +137,12 @@
     var r = cur.getBoundingClientRect();
     var cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     var best = null, bestScore = Infinity;
+    // haut/bas ne quittent jamais la page vers le menu latéral (on y va avec la flèche gauche),
+    // et dans le menu, haut/bas restent dans le menu
+    var inSide = !!cur.closest('#sidebar'), vertical = dir === 'up' || dir === 'down';
     F.candidates().forEach(function (c) {
       if (c === cur) return;
+      if (vertical && !!c.closest('#sidebar') !== inSide) return;
       var b = c.getBoundingClientRect();
       if (b.width === 0 && b.height === 0) return;
       var bx = b.left + b.width / 2, by = b.top + b.height / 2;

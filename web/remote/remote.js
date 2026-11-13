@@ -173,6 +173,7 @@
     var host = tv ? tv.base.replace(/^https?:\/\//, '') : '', m = (err && err.message) || '';
     if (m === 'unauthorized') return 'Code expiré : rescanne le QR code de la TV (Connexions).';
     if (err && err.wifi === false) return 'Active le Wi-Fi du téléphone (même réseau que la TV).';
+    if (/^10\.0\.[23]\./.test(host)) return 'Cette « TV » est un émulateur (BlueStacks…) : son réseau est virtuel, aucun téléphone ne peut la joindre. Teste avec la version Windows d\'Onyx ou une vraie TV.';
     if (/refused|ECONNREFUSED/i.test(m)) return 'La TV (' + host + ') refuse la connexion : ouvre Onyx sur la TV.';
     if (/unreachable|EHOSTUNREACH|ENETUNREACH|No route/i.test(m)) return 'La TV (' + host + ') n\'est pas joignable depuis ce Wi-Fi : vérifie que les deux sont sur le même réseau (pas un réseau invité).';
     if (/timed? ?out|ETIMEDOUT|délai/i.test(m)) return 'Pas de réponse de la TV (' + host + ') : la box isole peut-être les appareils (réseau invité, 5 GHz séparé…).';

@@ -59,6 +59,7 @@
       qrBox.innerHTML = Onyx.qrSvg(info.pairUrl);
       urlBox.innerHTML = '<span>' + Onyx.esc(info.url) + '</span><small>Code : ' + Onyx.esc(info.token) + '</small>';
       if (!info.ip || info.ip === '127.0.0.1') urlBox.appendChild(h('p.warn', { text: 'La TV ne semble pas connectée au réseau local (Wi-Fi / Ethernet).' }));
+      else if (/^10\.0\.[23]\./.test(info.ip)) urlBox.appendChild(h('p.warn', { text: 'Onyx tourne dans un émulateur (BlueStacks…) : son réseau est virtuel et invisible depuis ton Wi-Fi, le téléphone ne peut pas le joindre. Pour tester sur PC, utilise la version Windows d\'Onyx ; sur une vraie TV Android, la connexion fonctionne.' }));
       renderDevices();
     }
     function renderDevices() {

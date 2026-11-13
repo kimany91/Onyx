@@ -56,12 +56,12 @@
       h('div.genre-card-bg'), h('span.home-chip-ico', { html: Onyx.icons.home }), h('i.genre-card-shine')
     ]);
     home.style.setProperty('--gc', '#9aa3b5');
-    home.addEventListener('focus', function () { if (opts.onFocus) opts.onFocus(null); });
+    home.addEventListener('focus', function () { if (opts.onFocus) opts.onFocus(null, home); });
     home.addEventListener('click', function () { if (opts.onPick) opts.onPick(null); });
     row.track.appendChild(home);
     var cards = Onyx.Collections.GENRES.map(function (g) {
       var c = Onyx.genreCard(g, function () { if (opts.onPick) opts.onPick(g); });
-      c.addEventListener('focus', function () { if (opts.onFocus) opts.onFocus(g); });
+      c.addEventListener('focus', function () { if (opts.onFocus) opts.onFocus(g, c); });
       row.track.appendChild(c);
       return c;
     });
