@@ -184,15 +184,17 @@
         var v = cmd.videoId && m.videos ? m.videos.filter(function (x) { return x.id === cmd.videoId; })[0] : null;
         Onyx.sources.open(m, v || null);
       });
-    } else if (a === 'search') {
+    } else if (a === 'search' || a === 'text') {
+      var q = a === 'search' ? (cmd.query || '') : (cmd.text || '');
+      if (a === 'text') Onyx.bus.emit('remote-text', q);
+      // film ou série en cours sur la TV : on ne la dérange pas
+      if (Onyx.player && (Onyx.player.nativeActive || Onyx.player.active)) return;
+      // un champ de saisie est ouvert (ex. adresse d'addon) : le texte va dedans, pas dans la recherche
+      if (a === 'text' && Onyx.$('#modals > .modal input')) return;
       while (Onyx.closeTopModal()) { }
       var cur = app.current();
-      if (cur && cur.name === 'search' && cur.setQuery) cur.setQuery(cmd.query);
-      else app.go('search', { query: cmd.query || '' });
-    } else if (a === 'text') {
-      Onyx.bus.emit('remote-text', cmd.text || '');
-      var c2 = app.current();
-      if (!Onyx.$('#modals > .modal') && c2 && c2.name === 'search' && c2.setQuery) c2.setQuery(cmd.text || '');
+      if (cur && cur.name === 'search' && cur.setQuery) cur.setQuery(q);
+      else if (q) app.go('search', { query: q });
     } else if (a === 'addon-install') {
       Onyx.installAddon(cmd.url).then(function () { Onyx.bus.emit('addons-changed-remote'); }, function () { });
     } else if (a === 'addon-remove') {

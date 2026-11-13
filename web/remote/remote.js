@@ -426,6 +426,11 @@
   var browse = Onyx.$('#browse');
   var searchInput = Onyx.$('#search');
   var searchTok = 0;
+  // TV connectée : la recherche s'affiche aussi sur la TV, en direct
+  var sendTvSearch = Onyx.debounce(function (q) {
+    if (tv && online) api('/api/cmd', { action: 'search', query: q }).catch(function () { });
+  }, 350);
+  searchInput.addEventListener('input', function () { sendTvSearch(searchInput.value.trim()); });
   searchInput.addEventListener('input', Onyx.debounce(function () {
     var q = searchInput.value.trim();
     if (q.length < 2) { renderHome(); return; }
