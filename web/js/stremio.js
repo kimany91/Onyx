@@ -215,7 +215,7 @@
       return S.fetchJSON(S.base(a) + '/stream/' + encodeURIComponent(type) + '/' + encodeURIComponent(id) + '.json', { ttl: 10 * 60 * 1000, timeout: 45000 })
         .then(function (j) {
           var all = (j && j.streams) || [];
-          var r = { addon: a, streams: all.filter(function (st) { return !S.isDetailLink(st); }) };
+          var r = { addon: a, streams: all.filter(function (st) { return !S.isDetailLink(st) && !S.isPlaceholder(st); }) };
           if (onAddon) onAddon(r); return r;
         })
         .catch(function (e) { var r = { addon: a, streams: [], error: e.message }; if (onAddon) onAddon(r); return r; });
@@ -231,11 +231,16 @@
   };
 
   /* Une « source » qui renvoie vers une autre fiche (ex. Watch Next) n'est pas une vidéo */
+  /* Fausse source d'avertissement (« configuration obsolète », « [❌] ») : jamais lue */
+  S.isPlaceholder = function (st) {
+    var t = [st && st.name, st && st.title, st && st.description].join(' ');
+    return /\[❌\]|obsolete configuration|please re-?configure|configuration (obsol|invalide)/i.test(t);
+  };
   S.isDetailLink = function (st) { return !!(st && st.externalUrl && /^stremio:\/\/\/detail\//i.test(st.externalUrl)); };
 
   /* Addons conseillés, en tête du catalogue */
   S.FEATURED = [
-    { url: 'https://comet.elfhosted.com/manifest.json', note: 'Sources torrent et debrid très rapides. Pour tes réglages (debrid, langues), colle ton lien Comet personnel avec « Ajouter par URL ».' },
+    { url: 'https://cometfortheweebs.midnightignite.me/stremio/manifest.json', note: 'Sources torrent et debrid très rapides (films, séries et animes). Pour tes réglages (debrid, langues), configure-le sur cometfortheweebs.midnightignite.me puis colle ton lien avec « Ajouter par URL ».' },
     { url: 'https://anime-kitsu.strem.fun/manifest.json', note: 'Catalogues et fiches d\'animes (Kitsu).' },
     { url: 'https://099757617587-watch-next.baby-beamup.club/manifest.json', note: 'Suggestions « À voir ensuite » sur la fiche de chaque film ou série.' }
   ];

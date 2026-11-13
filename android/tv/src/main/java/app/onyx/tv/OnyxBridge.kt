@@ -50,9 +50,12 @@ class OnyxBridge(private val activity: MainActivity) {
 
     /** Découpe le sujet de l'image d'un film (IA) ; réponse via l'événement « onyx-cutout » */
     @JavascriptInterface fun cutout(url: String) {
-        Cutout.request(app, url) { name ->
+        Cutout.request(app, url) { fg, bg, cx, cy ->
+            val base = "https://appassets.androidplatform.net/cutouts/"
             MainActivity.emit("onyx-cutout", org.json.JSONObject().put("url", url)
-                .put("src", if (name != null) "https://appassets.androidplatform.net/cutouts/$name" else org.json.JSONObject.NULL).toString())
+                .put("src", if (fg != null) base + fg else org.json.JSONObject.NULL)
+                .put("bg", if (bg != null) base + bg else org.json.JSONObject.NULL)
+                .put("cx", cx.toDouble()).put("cy", cy.toDouble()).toString())
         }
     }
 

@@ -74,15 +74,17 @@ Accueil et navigation (TV et téléphone) :
   Jurassic Park, noir et blanc + manteau rouge de La Liste de Schindler, Anneau du Seigneur des anneaux…,
   web/js/fx-signatures.js). Chaque fond reçoit aussi des lumières posées sur les zones claires de sa propre image.
   Un film sans lien évident n'a pas d'effet inventé : seulement ses couleurs et ses lumières ;
-- **effet de profondeur (TV)** : l'IA de Google (ML Kit) découpe le sujet de l'image du film ; il flotte devant
-  le décor légèrement flouté, les deux plans dérivant à des vitesses différentes ;
+- **effet de profondeur (TV)** : l'IA de Google (ML Kit) détoure le sujet principal de l'image du film en haute
+  résolution (bords resserrés et adoucis, couleurs d'origine) et l'efface du décor (zone reconstruite). Le sujet
+  s'avance lentement vers la caméra autour de son propre centre pendant que le décor reste presque fixe :
+  vraie parallaxe, sans contour ni sujet en double ;
 - **lancement d'un film** : transition sobre, l'image du film s'ouvre depuis la carte en plein écran avec un lent
   mouvement de caméra et le logo en fondu, pendant que le chargement a déjà commencé ;
 - **sons d'interface** (créés dans l'app) pour la navigation, la validation, le retour et le lancement.
   Sons, ambiance et animation de lancement se désactivent dans *Paramètres › Application*.
 - pendant la lecture, **flèche retour en haut à gauche** pour quitter le film.
 
-Addons conseillés (en tête du catalogue sur la TV, dans « Plus » sur le téléphone) : **Comet** (sources torrent/debrid
+Addons conseillés (en tête du catalogue sur la TV, dans « Plus » sur le téléphone) : **Comet** (instance cometfortheweebs, sources torrent/debrid
 rapides ; pour tes réglages, colle ton lien Comet personnel), **Anime Kitsu** (animes) et **Watch Next** (rangée
 « À voir ensuite » sur chaque fiche ; ses liens ne sont jamais pris pour des vidéos).
 
