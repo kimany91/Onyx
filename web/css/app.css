@@ -510,6 +510,12 @@ body.playing #sidebar { display: none; }
 .pl-spinner.show { opacity: 1; }
 .pl-osd { position: absolute; top: 3rem; right: 4rem; padding: .7rem 1.3rem; border-radius: .6rem; background: rgba(0, 0, 0, .65); font-weight: 700; font-size: 1.4rem; opacity: 0; transition: opacity .25s; }
 .pl-osd.show { opacity: 1; }
+/* « Passer l'intro » */
+.pl-skip { position: absolute; right: 4rem; bottom: 9rem; z-index: 3; padding: .95rem 1.9rem; border-radius: .55rem; border: 1.5px solid rgba(255, 255, 255, .8);
+  background: rgba(20, 20, 24, .8); color: #fff; font: inherit; font-weight: 700; font-size: 1.15rem; letter-spacing: .01em; cursor: pointer;
+  opacity: 0; transform: translateY(12px); pointer-events: none; transition: opacity .28s var(--out, ease), transform .28s var(--out, ease), background .15s, color .15s; backdrop-filter: blur(8px); }
+.pl-skip.show { opacity: 1; transform: none; pointer-events: auto; }
+.pl-skip:hover, .pl-skip.focused, .pl-skip:focus-visible { background: #fff; color: #000; outline: none; }
 body.playing #view, body.playing #backdrop { visibility: hidden; }
 
 /* ---------- Souris (version PC) ---------- */

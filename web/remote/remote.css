@@ -289,3 +289,4 @@ body.local .no-tv:not([style*="none"]) ~ .seek-row, body.local .no-tv:not([style
 .rec-text b { display: block; font-size: 15px; }
 .rec-text small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; line-height: 1.35; }
 .rec-item .btn { height: 38px; padding: 0 14px; flex: none; }
+.now-skip { display: block; width: 100%; margin: 4px 0 14px; }

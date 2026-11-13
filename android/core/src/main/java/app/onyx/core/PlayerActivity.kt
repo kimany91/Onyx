@@ -83,6 +83,19 @@ class PlayerActivity : Activity() {
     private var rxLast = 0L; private var rxAt = 0L; private var rxSpeed = 0
     private var everReady = false
     private var failedOnce = false
+    /** « Passer l'intro » : segments connus (bases communautaires ou analyse des logos). */
+    private var skips: List<IntroSkip.Seg> = emptyList()
+    private val skipped = HashSet<Long>()
+    private var shownSkip: IntroSkip.Seg? = null
+    private lateinit var skipBtn: TextView
+    @Volatile private var loadGen = 0
+    private var curUrl = ""
+    private var curHeaders: Map<String, String> = emptyMap()
+    private var curType = ""
+    private var introStarted = false
+    private val skipCheck = object : Runnable {
+        override fun run() { updateSkip(); main.postDelayed(this, 500) }
+    }
     /** Affiche l'état du chargement et passe à une autre source si rien ne vient. */
     private val watchdog = object : Runnable {
         override fun run() {
@@ -252,6 +265,28 @@ class PlayerActivity : Activity() {
         loading = LoadingScreen(this)
         root.addView(loading.view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
+        // « Passer l'intro » : en bas à droite, comme sur les plateformes de streaming
+        skipBtn = TextView(this).apply {
+            text = IntroSkip.INTRO
+            textSize = 17f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER
+            setPadding(dp(26f), dp(13f), dp(26f), dp(13f))
+            isFocusable = true; isClickable = true
+            val r = dp(8f).toFloat()
+            background = StateListDrawable().apply {
+                addState(intArrayOf(android.R.attr.state_focused), GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = r })
+                addState(intArrayOf(android.R.attr.state_pressed), GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = r })
+                addState(intArrayOf(), GradientDrawable().apply { setColor(0xCC141418.toInt()); cornerRadius = r; setStroke(dp(1.5f), 0xCCFFFFFF.toInt()) })
+            }
+            setTextColor(android.content.res.ColorStateList(arrayOf(intArrayOf(android.R.attr.state_focused), intArrayOf(android.R.attr.state_pressed), intArrayOf()),
+                intArrayOf(Color.BLACK, Color.BLACK, Color.WHITE)))
+            setCompoundDrawablePadding(dp(10f))
+            alpha = 0f; visibility = View.GONE
+            setOnClickListener { doSkip() }
+        }
+        root.addView(skipBtn, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END).apply {
+            bottomMargin = dp(110f); rightMargin = dp(48f)
+        })
+
         osd = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
             setPadding(dp(16f), dp(8f), dp(16f), dp(8f))
@@ -280,6 +315,11 @@ class PlayerActivity : Activity() {
         }
         if (url.isEmpty()) { finish(); return }
         videoId = o.optString("videoId")
+        loadGen++
+        curUrl = url; curType = o.optString("type")
+        curHeaders = HashMap<String, String>().also { m -> o.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> m[k] = h.optString(k) } } }
+        skips = emptyList(); skipped.clear(); introStarted = false
+        hideSkip()
         if (!loading.visible) loading.show()
         loading.rewind(2, 45f, "Connexion à la source…")
         preparing = false
@@ -518,6 +558,73 @@ class PlayerActivity : Activity() {
         everReady = true
         showStatus(null)
         loading.hide()
+        startIntro()
+    }
+
+    /**
+     * Cherche l'intro en arrière-plan dès que la vidéo s'affiche :
+     * bases communautaires d'abord, puis (film seulement) analyse des logos de studio.
+     */
+    private fun startIntro() {
+        if (introStarted) return
+        introStarted = true
+        val p = player ?: return
+        val gen = loadGen
+        val vid = videoId
+        val url = curUrl; val headers = curHeaders
+        val torrent = torrentHash != null
+        val movie = curType == "movie" || (curType.isEmpty() && Regex("^tt\\d+$").matches(vid))
+        val atStart = p.currentPosition < 90_000
+        val dur = if (p.duration == C.TIME_UNSET) 0L else p.duration
+        main.removeCallbacks(skipCheck)
+        main.postDelayed(skipCheck, 500)
+        Thread {
+            var segs = try { IntroSkip.lookup(vid, dur) } catch (_: Throwable) { emptyList() }
+            if (gen != loadGen) return@Thread
+            if (segs.none { it.label == IntroSkip.INTRO } && movie && atStart && !url.contains(".m3u8") && !url.contains(".mpd")) {
+                // torrent : lecture « passive » des données déjà reçues (aucune priorité volée au film)
+                val aurl = if (torrent) url + (if (url.contains('?')) "&" else "?") + "passive=1" else url
+                val found = IntroSkip.analyze(aurl, headers, if (torrent) 700L * 1024 * 1024 else 150L * 1024 * 1024) { gen != loadGen }
+                if (found != null) segs = segs + found
+            }
+            main.post { if (gen == loadGen) { skips = segs; updateSkip() } }
+        }.apply { isDaemon = true; priority = Thread.MIN_PRIORITY; start() }
+    }
+
+    /** Affiche « Passer l'intro » pendant le segment (jusqu'à 1,5 s avant sa fin). */
+    private fun updateSkip() {
+        val p = player ?: return
+        val pos = p.currentPosition
+        val seg = if (!everReady) null else skips.firstOrNull { pos >= it.startMs - 300 && pos < it.endMs - 1500 && it.startMs !in skipped }
+        if (seg === shownSkip) return
+        if (seg == null) { hideSkip(); report(false); return }
+        shownSkip = seg
+        skipBtn.text = "${seg.label}  ⏭"
+        skipBtn.visibility = View.VISIBLE
+        skipBtn.animate().cancel()
+        skipBtn.translationY = dp(12f).toFloat()
+        skipBtn.animate().alpha(1f).translationY(0f).setDuration(280).start()
+        if (!view.isControllerFullyVisible) skipBtn.requestFocus()
+        report(false)
+    }
+
+    private fun hideSkip() {
+        shownSkip = null
+        if (!::skipBtn.isInitialized) return
+        skipBtn.animate().cancel()
+        skipBtn.animate().alpha(0f).setDuration(200).withEndAction { if (shownSkip == null) skipBtn.visibility = View.GONE }.start()
+    }
+
+    /** Saut à la fin de l'intro : simple déplacement dans la vidéo (déjà en mémoire), rien ne se recharge. */
+    private fun doSkip() {
+        val p = player ?: return
+        val seg = shownSkip ?: return
+        skipped.add(seg.startMs)
+        hideSkip()
+        main.removeCallbacks(applySeek); pendingSeek = 0
+        p.seekTo(seg.endMs)
+        showOsd(if (seg.label == IntroSkip.RECAP) "Résumé passé" else "Intro passée", 1200)
+        report(false)
     }
 
     /** Part du tampon de démarrage déjà rempli (ExoPlayer démarre à ~1,5 s de vidéo). */
@@ -612,8 +719,9 @@ class PlayerActivity : Activity() {
             "seek" -> seekBy(cmd.optInt("delta", 10))
             "seekTo" -> p.seekTo((cmd.optDouble("position", 0.0) * 1000).toLong())
             "stop" -> finish()
+            "skipIntro" -> doSkip()
             "key" -> when (cmd.optString("key")) {
-                "ok" -> { toggle(); view.showController() }
+                "ok" -> { if (shownSkip != null && !view.isControllerFullyVisible) doSkip() else { toggle(); view.showController() } }
                 "left" -> seekBy(-10)
                 "right" -> seekBy(10)
                 "up", "down" -> view.showController()
@@ -648,7 +756,10 @@ class PlayerActivity : Activity() {
                 when (code) {
                     KeyEvent.KEYCODE_DPAD_LEFT -> { seekBy(if (e.repeatCount > 8) -60 else -10); return true }
                     KeyEvent.KEYCODE_DPAD_RIGHT -> { seekBy(if (e.repeatCount > 8) 60 else 10); return true }
-                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> { toggle(); view.showController(); return true }
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                        if (shownSkip != null) { if (e.repeatCount == 0) doSkip(); return true }
+                        toggle(); view.showController(); return true
+                    }
                     KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN -> { view.showController(); return true }
                 }
             }
@@ -664,6 +775,7 @@ class PlayerActivity : Activity() {
             .put("position", p.currentPosition)
             .put("duration", if (p.duration == C.TIME_UNSET) 0 else p.duration)
             .put("paused", !p.isPlaying)
+        shownSkip?.let { o.put("skip", JSONObject().put("label", it.label).put("end", it.endMs)) }
         if (closed) {
             o.put("closed", true).put("ended", ended)
             error?.let { o.put("error", it) }
@@ -693,6 +805,8 @@ class PlayerActivity : Activity() {
         main.removeCallbacks(watchdog)
         main.removeCallbacks(ticker)
         main.removeCallbacks(applySeek)
+        main.removeCallbacks(skipCheck)
+        loadGen++
         report(true)
         player?.release()
         player = null

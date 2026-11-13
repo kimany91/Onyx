@@ -306,7 +306,7 @@
         menu.info = S.describe(ctx.info);
         phone.play(JSON.stringify({
           url: res.url, headers: res.headers || null, title: ctx.meta.name || '', subtitle: epLabel(v),
-          subtitles: S.pickSubtitles(subs, ctx.prefs), startAt: Math.floor(startAt * 1000), videoId: ctx.vid,
+          subtitles: S.pickSubtitles(subs, ctx.prefs), startAt: Math.floor(startAt * 1000), videoId: ctx.vid, type: ctx.meta.type,
           audioLang: ctx.prefs.audio, subLang: ctx.prefs.subs, subtitlesAuto: ctx.prefs.subs !== 'off',
           deviceLang: S.deviceLang(), menu: menu,
           background: ctx.meta.background || (/^tt/.test(ctx.meta.id) ? 'https://images.metahub.space/background/medium/' + ctx.meta.id + '/img' : ''),
@@ -798,6 +798,8 @@
       Onyx.$('.now-bar i', box).style.width = pct + '%';
       Onyx.$('.now-time', box).textContent = Onyx.fmtTime(np.position) + ' / ' + Onyx.fmtTime(np.duration);
       Onyx.$('.now-pp', box).textContent = np.paused ? '▶' : '❚❚';
+      var sk = Onyx.$('.now-skip', box);
+      if (sk) { sk.style.display = np.skip ? '' : 'none'; if (np.skip) sk.textContent = np.skip.label + '  ⏭'; }
       return;
     }
     box.dataset.vid = np.videoId;
@@ -818,6 +820,7 @@
         h('button', { text: '+10', onclick: function () { cmd({ action: 'seek', delta: 10 }); } }),
         h('button', { text: '+30', onclick: function () { cmd({ action: 'seek', delta: 30 }); } })
       ]),
+      h('button.btn.primary.now-skip', { text: (np.skip ? np.skip.label : 'Passer l\'intro') + '  ⏭', style: { display: np.skip ? '' : 'none' }, onclick: function () { cmd({ action: 'skipIntro' }); } }),
       h('button.btn.stop', { text: 'Arrêter la lecture', onclick: function () { cmd({ action: 'stop' }); } })
     ]));
   }

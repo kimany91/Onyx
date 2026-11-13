@@ -152,7 +152,7 @@
       P.nativeActive = true;
       Onyx.native.play({
         url: res.url, headers: res.headers || null, title: title, subtitle: sub, subtitles: subs,
-        startAt: Math.floor(startAt * 1000), videoId: ctx.videoId,
+        startAt: Math.floor(startAt * 1000), videoId: ctx.videoId, type: ctx.type,
         audioLang: ctx.prefs.audio, subLang: ctx.prefs.subs, subtitlesAuto: ctx.prefs.subs !== 'off',
         deviceLang: S.deviceLang(), menu: menuFor(ctx),
         background: Onyx.bgOf(ctx.fullMeta || ctx.meta) || '', poster: ctx.meta.poster || '',
@@ -322,6 +322,49 @@
     var backBtn = h('button.pl-back.f', { type: 'button', title: 'Quitter la lecture', html: Onyx.icons.back });
     backBtn.addEventListener('click', function () { closeHtml5(); });
     var spinner = h('div.pl-spinner', [Onyx.spinner()]);
+    // « Passer l'intro » (bases communautaires, ou analyse des logos de studio pour un film)
+    var skipBtn = h('button.pl-skip', { type: 'button' });
+    var skips = [], skipped = {}, shownSkip = null;
+    skipBtn.addEventListener('click', function (e) { e.stopPropagation(); doSkip(); });
+    function updateSkip() {
+      var t = video.currentTime, seg = null;
+      for (var i = 0; i < skips.length; i++) {
+        var x = skips[i];
+        if (t >= x.start - 0.3 && t < x.end - 1.5 && !skipped[x.start]) { seg = x; break; }
+      }
+      if (seg === shownSkip) return;
+      shownSkip = seg;
+      P.skipShown = seg;
+      if (seg) { skipBtn.textContent = seg.label + '  ⏭'; skipBtn.classList.add('show'); if (!controlsVisible()) Onyx.focus.set(skipBtn, { noScroll: true }); }
+      else skipBtn.classList.remove('show');
+      pushState();
+    }
+    function doSkip() {
+      var seg = shownSkip;
+      if (!seg) return;
+      skipped[seg.start] = true;
+      video.currentTime = seg.end;
+      osd(seg.label === Onyx.intro.RECAP ? 'Résumé passé' : 'Intro passée');
+      updateSkip();
+    }
+    P.skipIntro = doSkip;
+    var introDone = false;
+    function startIntro() {
+      if (introDone || !Onyx.intro) return;
+      introDone = true;
+      var c = ctx, movie = c.type === 'movie';
+      var atStart = video.currentTime < 90;
+      Onyx.intro.lookup(c.videoId, video.duration || 0).then(function (segs) {
+        if (P.video !== video) return;
+        skips = segs;
+        updateSkip();
+        if (!segs.some(function (x) { return x.label === Onyx.intro.INTRO; }) && movie && atStart) {
+          Onyx.intro.analyze(url, function () { return P.video !== video; }).then(function (seg) {
+            if (seg && P.video === video) { skips = skips.concat([seg]); updateSkip(); }
+          });
+        }
+      });
+    }
     var nv = P.ctx ? nextVideo(P.ctx.fullMeta || P.ctx.meta, P.ctx.videoId) : null;
     var root = h('div#player', [
       video,
@@ -329,6 +372,7 @@
       h('div.pl-top', [backBtn, h('div.pl-titles', [h('div.pl-title', { text: title }), sub ? h('div.pl-sub', { text: sub }) : null])]),
       spinner,
       h('div.pl-osd'),
+      skipBtn,
       h('div.pl-bottom', [
         h('div.pl-progress', [tCur, bar, tDur]),
         h('div.pl-controls', [
@@ -378,6 +422,7 @@
       var pct = d ? video.currentTime / d * 100 : 0;
       played.style.width = pct + '%'; thumb.style.left = pct + '%';
       if (video.buffered.length) buffered.style.width = (d ? video.buffered.end(video.buffered.length - 1) / d * 100 : 0) + '%';
+      updateSkip();
     });
     video.addEventListener('waiting', function () { spinner.classList.add('show'); });
     var loader = ctx.loader, started = false;
@@ -399,7 +444,7 @@
     video.addEventListener('loadeddata', bufProg);
     video.addEventListener('playing', function () {
       spinner.classList.remove('show'); playBtn.innerHTML = Onyx.icons.pause; pushState();
-      if (!started) { started = true; if (loader) loader.finish(); }
+      if (!started) { started = true; if (loader) loader.finish(); startIntro(); }
     });
     video.addEventListener('canplay', function () { spinner.classList.remove('show'); });
     video.addEventListener('pause', function () { playBtn.innerHTML = Onyx.icons.play; showControls(true); pushState(); });
@@ -490,7 +535,7 @@
     clearInterval(P.progressTimer);
     try { P.video.pause(); P.video.removeAttribute('src'); P.video.load(); } catch (e) { }
     P.el.remove();
-    P.el = null; P.video = null; P.active = false;
+    P.el = null; P.video = null; P.active = false; P.skipShown = null;
     document.body.classList.remove('playing');
     if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(function () { });
     if (!silent) {
@@ -514,7 +559,7 @@
     if (!controlsVisible()) {
       if (a === 'left') { seek(-10); return; }
       if (a === 'right') { seek(10); return; }
-      if (a === 'ok') { togglePause(); return; }
+      if (a === 'ok') { if (P.skipShown) P.skipIntro(); else togglePause(); return; }
       showControls();
       Onyx.focus.set(Onyx.$('.pl-btn.default', P.el));
       return;
@@ -533,6 +578,7 @@
     else if (cmd.action === 'seek') seek(cmd.delta || 10);
     else if (cmd.action === 'seekTo' && P.video) { P.video.currentTime = cmd.position || 0; }
     else if (cmd.action === 'stop') closeHtml5();
+    else if (cmd.action === 'skipIntro') { if (P.skipIntro) P.skipIntro(); }
     else return false;
     return true;
   };
@@ -541,8 +587,8 @@
     if (!P.ctx || (!P.active && !P.nativeActive)) return null;
     var c = P.ctx;
     var s = { title: c.meta.name, subtitle: epLabel(c.video), poster: c.meta.poster || '', background: Onyx.bgOf(c.meta) || '', type: c.type, id: c.meta.id, videoId: c.videoId };
-    if (P.active && P.video) { s.position = P.video.currentTime; s.duration = P.video.duration || 0; s.paused = P.video.paused; }
-    else if (P.nativeState) { s.position = P.nativeState.position / 1000; s.duration = P.nativeState.duration / 1000; s.paused = !!P.nativeState.paused; }
+    if (P.active && P.video) { s.position = P.video.currentTime; s.duration = P.video.duration || 0; s.paused = P.video.paused; if (P.skipShown) s.skip = { label: P.skipShown.label }; }
+    else if (P.nativeState) { s.position = P.nativeState.position / 1000; s.duration = P.nativeState.duration / 1000; s.paused = !!P.nativeState.paused; if (P.nativeState.skip) s.skip = { label: P.nativeState.skip.label }; }
     return s;
   };
   function pushState() { if (Onyx.app && Onyx.app.pushState) Onyx.app.pushState(); }

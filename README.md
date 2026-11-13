@@ -65,6 +65,16 @@ Accueil et navigation (TV et téléphone) :
   en dessous, sans ouvrir de page. La carte « maison » tout à gauche remet le menu principal, tout comme la
   touche Retour ou un changement d'onglet. Plus d'onglets Films / Séries séparés : tout est sur l'accueil. Chaque carte a une icône 3D en métal poli : sélectionnée avec la télécommande (ou doigt
   posé dessus sur le téléphone), la carte s'illumine et l'icône tourne ; elle s'arrête quand on la quitte ;
+- **Passer l'intro** : pendant les logos de studio au début d'un film (Disney, Warner, Marvel…), le générique
+  d'une série ou le « précédemment », un bouton *Passer l'intro* apparaît en bas à droite (OK sur la
+  télécommande, ou le bouton de l'app téléphone). Les temps viennent des bases communautaires gratuites
+  TheIntroDB, SkipDB et IntroDB ; pour un film absent de ces bases, Onyx repère lui-même les logos en
+  analysant les 2 premières minutes (passages au noir entre les logos, sans décoder la vidéo). Le saut est
+  un simple déplacement dans la vidéo déjà chargée : rien ne recharge ;
+- **lecture torrent sans pause** : la vidéo est servie bloc par bloc (16 ko) dès réception au lieu
+  d'attendre des morceaux entiers de 4 à 16 Mo, et un morceau que libtorrent « oublie » (cas observé
+  avec des sources lentes, qui bloquait le démarrage ou un saut pendant ~2 min) est relancé après 1,5 s.
+  Banc d'essai avec une seule source à 700 ko/s : saut au milieu du film ~100 s → ~6 s, 0 coupure en lecture ;
 - animations fluides partout (transitions de pages, affiches qui apparaissent en cascade, boutons à ressort) ;
 - **ambiance du film** : quand un film est sélectionné, l'écran prend ses couleurs et des effets de lumière
   et d'animation propres à ce film : 36 effets (toiles, hyperespace, code Matrix, reflets sous l'eau, aurores,

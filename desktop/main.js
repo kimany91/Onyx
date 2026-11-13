@@ -98,7 +98,7 @@ app.whenReady().then(async () => {
   // images des films : autorisation CORS ajoutée pour que l'ambiance puisse lire leurs couleurs
   try {
     const { session } = require('electron');
-    session.defaultSession.webRequest.onHeadersReceived({ urls: ['https://images.metahub.space/*', 'https://m.media-amazon.com/*', 'https://image.tmdb.org/*'] }, (d, cb) => {
+    session.defaultSession.webRequest.onHeadersReceived({ urls: ['https://images.metahub.space/*', 'https://m.media-amazon.com/*', 'https://image.tmdb.org/*', 'https://api.introdb.app/*', 'http://127.0.0.1:11470/*'] }, (d, cb) => {
       const h = d.responseHeaders || {};
       Object.keys(h).forEach((k) => { if (k.toLowerCase() === 'access-control-allow-origin') delete h[k]; });
       h['Access-Control-Allow-Origin'] = ['*'];
