@@ -366,10 +366,15 @@ class PlayerActivity : Activity() {
 
         p.addListener(object : Player.Listener {
             override fun onPlaybackStateChanged(state: Int) {
-                if (state == Player.STATE_READY) {
-                    everReady = true; showStatus(null)
-                    loading.hide()
+                // « prête » ne suffit pas : on attend que l'image s'affiche vraiment (sinon écran noir)
+                if (state == Player.STATE_READY && !everReady) {
+                    loading.setStage(3, "Démarrage", null, 97f)
+                    // fichier sans image (audio seul) : on lance quand même
+                    main.postDelayed({ if (!everReady && player === p && p.isPlaying && p.videoFormat == null) started() }, 1500)
+                    // sécurité : la lecture avance mais aucune image après 8 s → on montre quand même le lecteur
+                    main.postDelayed({ if (!everReady && player === p && p.isPlaying && p.currentPosition > 0) started() }, 8000)
                 }
+                if (state == Player.STATE_READY && everReady) showStatus(null)
                 if (state == Player.STATE_ENDED) { ended = true; finish() }
             }
             override fun onTracksChanged(tracks: Tracks) {
@@ -387,6 +392,7 @@ class PlayerActivity : Activity() {
                 fail(msg)
             }
             override fun onIsPlayingChanged(isPlaying: Boolean) { report(false) }
+            override fun onRenderedFirstFrame() { if (player === p) started() }
         })
         val start = o.optLong("startAt", 0)
         p.setMediaItem(item, if (start > 0) start else C.TIME_UNSET)
@@ -504,6 +510,14 @@ class PlayerActivity : Activity() {
     }
 
     fun message(text: String) { showOsd(text, 3500) }
+
+    /** La vidéo s'affiche : l'écran de chargement s'efface en douceur */
+    private fun started() {
+        if (everReady) return
+        everReady = true
+        showStatus(null)
+        loading.hide()
+    }
 
     /** Part du tampon de démarrage déjà rempli (ExoPlayer démarre à ~1,5 s de vidéo). */
     private fun bufferFraction(p: ExoPlayer): Float =

@@ -711,3 +711,14 @@ body.playing #ambient { visibility: hidden; }
 @keyframes bgDrift { from { transform: scale(1.04) translate3d(0, 0, 0); } to { transform: scale(1.06) translate3d(-.8%, .4%, 0); } }
 @keyframes fgDrift { from { transform: scale(1.04) translate3d(0, 0, 0); } to { transform: scale(1.085) translate3d(1.1%, -.3%, 0); } }
 @media (prefers-reduced-motion: reduce) { .bd-fg.on, #backdrop.depth .bd-layer.show { animation: none; } }
+
+/* ---------- Catégories sur place (accueil) ---------- */
+.rows > .row.row-off { display: none; }
+.genre-row .home-chip { width: 7.4rem; }
+.home-chip-ico { position: absolute; top: 50%; left: 50%; width: 3rem; height: 3rem; margin: -1.9rem 0 0 -1.5rem; color: #e9e9ee; display: flex; }
+.home-chip-ico .ico { width: 100%; height: 100%; fill: currentColor; }
+/* catégorie choisie (même quand la télécommande est ailleurs) */
+.genre-card.picked { border-color: rgba(255, 255, 255, .42); }
+.genre-card.picked::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: .45rem; height: .2rem; border-radius: .1rem; background: var(--gc); box-shadow: 0 0 .8rem var(--gc); }
+.genre-card.picked .genre-card-bg { opacity: .18; }
+.row.genre-content { animation: riseIn .55s var(--out) both; }

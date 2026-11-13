@@ -13,7 +13,7 @@
     ]);
     card.style.setProperty('--gc', g.color);
     card._genre = g;
-    card.addEventListener('click', function () { (onOpen || function () { Onyx.app.go('genre', { genre: g.id }); })(g); });
+    card.addEventListener('click', function () { (onOpen || function () { Onyx.app.go('home'); setTimeout(function () { Onyx.bus.emit('home-genre', g.id); }, 60); })(g); });
     var G = Onyx.Genre3D;
     if (G && G.supported) {
       var px = function () { return Math.round(Math.max(box.clientWidth, 96) * Math.min(2, window.devicePixelRatio || 1)); };
@@ -47,10 +47,24 @@
     return grid;
   };
 
-  /* Ligne compacte de catégories pour l'accueil */
-  Onyx.genreRow = function () {
+  /* Barre de catégories de l'accueil : la « maison » (menu principal) puis chaque catégorie.
+     opts.onFocus(genre | null) quand la télécommande passe dessus, opts.onPick(genre | null) à la validation. */
+  Onyx.genreRow = function (opts) {
+    opts = opts || {};
     var row = Onyx.row('Catégories', { cls: 'genre-row' });
-    var cards = Onyx.Collections.GENRES.map(function (g) { var c = Onyx.genreCard(g); row.track.appendChild(c); return c; });
+    var home = h('button.genre-card.home-chip.f.picked', { type: 'button', 'aria-label': 'Accueil' }, [
+      h('div.genre-card-bg'), h('span.home-chip-ico', { html: Onyx.icons.home }), h('i.genre-card-shine')
+    ]);
+    home.style.setProperty('--gc', '#9aa3b5');
+    home.addEventListener('focus', function () { if (opts.onFocus) opts.onFocus(null); });
+    home.addEventListener('click', function () { if (opts.onPick) opts.onPick(null); });
+    row.track.appendChild(home);
+    var cards = Onyx.Collections.GENRES.map(function (g) {
+      var c = Onyx.genreCard(g, function () { if (opts.onPick) opts.onPick(g); });
+      c.addEventListener('focus', function () { if (opts.onFocus) opts.onFocus(g); });
+      row.track.appendChild(c);
+      return c;
+    });
     loadStills(row, cards);
     return row;
   };

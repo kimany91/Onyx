@@ -136,7 +136,11 @@ class LoadingScreen(private val act: Activity) {
         showSlide()
     }
 
+    /** Effacement en cours (la vidéo vient de démarrer) */
+    private var hiding = false
+
     fun show() {
+        hiding = false
         view.animate().cancel()
         view.visibility = View.VISIBLE; view.alpha = 1f; view.scaleX = 1f; view.scaleY = 1f
         shown = 0f; target = 0f; stage = -1; bar.value = 0f
@@ -148,16 +152,19 @@ class LoadingScreen(private val act: Activity) {
 
     /** Fin du chargement : la barre se remplit puis l'écran s'efface en douceur sur la vidéo. */
     fun hide() {
-        if (view.visibility != View.VISIBLE) return
+        if (view.visibility != View.VISIBLE || hiding) return
+        hiding = true
         progressTo(100f, 3)
         stageLabel.text = "C'est parti"
         main.postDelayed({
+            if (!hiding) return@postDelayed // une nouvelle source a relancé le chargement entre-temps
             view.animate().alpha(0f).scaleX(1.04f).scaleY(1.04f).setDuration(550).setInterpolator(APPLE)
-                .withEndAction { view.visibility = View.GONE; main.removeCallbacks(nextSlide) }.start()
+                .withEndAction { if (hiding) { view.visibility = View.GONE; hiding = false; main.removeCallbacks(nextSlide) } }.start()
         }, 250)
     }
 
-    val visible get() = view.visibility == View.VISIBLE
+    /** Affiché (et pas en train de s'effacer) */
+    val visible get() = view.visibility == View.VISIBLE && !hiding
 
     /** Étape (0-3), texte de l'étape, détail réel, progression globale (0-100, jamais en arrière). */
     fun setStage(st: Int, label: String, det: String?, pct: Float) {

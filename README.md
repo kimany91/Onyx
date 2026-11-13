@@ -60,9 +60,10 @@ Le téléphone et la TV doivent être sur le **même Wi-Fi**. Depuis le téléph
 Accueil et navigation (TV et téléphone) :
 - rangées **Au cinéma** (films sortis ces 5 derniers mois, mise à jour automatique), **Les Classiques**,
   **Disney** et **Marvel**, en plus des catalogues de tes addons ;
-- **Catégories** comme sur Netflix (Action, Comédie, Horreur, Famille, Animation…) en petites cartes
-  directement sur l'accueil (et dans la *Recherche* sur la TV, en haut de l'onglet *Explorer* sur le
-  téléphone). Chaque carte a une icône 3D en métal poli : sélectionnée avec la télécommande (ou doigt
+- **Catégories sur place** (Action, Comédie, Horreur, Famille, Animation…) : barre de petites cartes en haut
+  des rangées de l'accueil. Aller sur une catégorie (TV) ou la toucher (téléphone) affiche ses films juste
+  en dessous, sans ouvrir de page. La carte « maison » tout à gauche remet le menu principal, tout comme la
+  touche Retour ou un changement d'onglet. Plus d'onglets Films / Séries séparés : tout est sur l'accueil. Chaque carte a une icône 3D en métal poli : sélectionnée avec la télécommande (ou doigt
   posé dessus sur le téléphone), la carte s'illumine et l'icône tourne ; elle s'arrête quand on la quitte ;
 - animations fluides partout (transitions de pages, affiches qui apparaissent en cascade, boutons à ressort) ;
 - **ambiance du film** : quand un film est sélectionné, l'écran prend ses couleurs et des effets de lumière

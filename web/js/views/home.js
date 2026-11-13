@@ -73,7 +73,8 @@
         });
       }
       if (contRow) { if (row) contRow.replaceWith(row); else contRow.remove(); }
-      else if (row) track.insertBefore(row, track.firstChild);
+      else if (row) track.insertBefore(row, genreBar ? genreBar.nextSibling : track.firstChild);
+      if (row && mode) row.classList.add('row-off');
       contRow = row;
     }
     function buildList() {
@@ -83,9 +84,10 @@
         row = Onyx.row('Ma liste');
         items.slice(0, 40).forEach(function (m) { row.track.appendChild(Onyx.card(m, { onFocus: onCardFocus })); });
       }
-      var anchor = contRow ? contRow.nextSibling : track.firstChild;
+      var anchor = contRow ? contRow.nextSibling : (genreBar ? genreBar.nextSibling : track.firstChild);
       if (listRow) { if (row) listRow.replaceWith(row); else listRow.remove(); }
       else if (row) track.insertBefore(row, anchor);
+      if (row && mode) row.classList.add('row-off');
       listRow = row;
     }
 
@@ -95,7 +97,6 @@
       var specs = [];
       var special = (Onyx.Collections && Onyx.Collections.homeRows) || [];
       if (special[0]) specs.push({ title: special[0].title, load: special[0].load });
-      if (Onyx.genreRow) specs.push({ genres: true });
       cats.slice(0, 2).forEach(function (cat) { specs.push(catSpec(cat)); });
       special.slice(1).forEach(function (r) { specs.push({ title: r.title, load: r.load }); });
       cats.slice(2, 18).forEach(function (cat) { specs.push(catSpec(cat)); });
@@ -105,9 +106,9 @@
       }
       var first = true;
       specs.forEach(function (spec) {
-        if (spec.genres) { track.appendChild(Onyx.genreRow()); return; }
         var row = Onyx.row(spec.title);
         Onyx.skeletonRow(9).forEach(function (s) { row.track.appendChild(s); });
+        if (mode) row.classList.add('row-off');
         track.appendChild(row);
         spec.load().then(function (metas) {
           row.track.innerHTML = '';
@@ -130,6 +131,81 @@
       return { title: Onyx.catalogTitle(cat), type: cat.type, load: function () { return S.catalog(cat.addon, cat.type, cat.id); } };
     }
 
+    /* ---------- Catégories sur place ----------
+       La barre de catégories est en haut des rangées. À gauche, la « maison » = le menu principal.
+       Aller sur une catégorie affiche ses films juste en dessous (sans ouvrir de page) ;
+       revenir sur la maison, appuyer sur Retour ou changer d'onglet réaffiche le menu principal. */
+    var mode = null, genreRows = [], genreBar = null, pickT = 0, genreToken = 0;
+    function markBar() {
+      if (!genreBar) return;
+      Onyx.$$('.genre-card', genreBar).forEach(function (c) { c.classList.toggle('picked', (c._genre ? c._genre.id : null) === mode); });
+    }
+    function clearGenreRows() { genreRows.forEach(function (r) { if (r.parentNode) r.parentNode.removeChild(r); }); genreRows = []; }
+    function showHome() {
+      clearTimeout(pickT);
+      if (mode === null) { markBar(); return; }
+      mode = null; genreToken++;
+      clearGenreRows();
+      Onyx.$$('.row-off', track).forEach(function (r) { r.classList.remove('row-off'); });
+      markBar();
+    }
+    function showGenre(id) {
+      clearTimeout(pickT);
+      if (mode === id) return;
+      mode = id;
+      var token = ++genreToken;
+      Array.prototype.forEach.call(track.children, function (r) { if (r !== genreBar) r.classList.add('row-off'); });
+      clearGenreRows();
+      markBar();
+      for (var i = 0; i < 2; i++) { var sk = Onyx.row(' ', { cls: 'genre-content' }); Onyx.skeletonRow(9).forEach(function (x) { sk.track.appendChild(x); }); track.appendChild(sk); genreRows.push(sk); }
+      Onyx.Collections.genre(id).then(function (rows) {
+        if (token !== genreToken) return;
+        clearGenreRows();
+        rows.forEach(function (r) {
+          var row = Onyx.row(r.title, { cls: 'genre-content' });
+          r.metas.slice(0, 40).forEach(function (m) { row.track.appendChild(Onyx.card(m, { onFocus: onCardFocus })); });
+          track.appendChild(row); genreRows.push(row);
+        });
+        if (!rows.length) { var e = Onyx.empty('Rien pour le moment', 'Aucun titre dans cette catégorie.'); track.appendChild(e); genreRows.push(e); }
+        var first = genreRows[0] && Onyx.$('.card', genreRows[0]);
+        if (first && first._meta) setHero(first._meta);
+      });
+    }
+    // dès qu'on arrive sur la barre, les catégories se préparent en arrière-plan (affichage quasi instantané)
+    var prefetched = false;
+    function prefetchGenres() {
+      if (prefetched) return; prefetched = true;
+      var ids = Onyx.Collections.GENRES.map(function (g) { return g.id; }), i = 0;
+      (function next() { if (i >= ids.length) return; Onyx.Collections.genre(ids[i++]).then(function () { setTimeout(next, 250); }, function () { setTimeout(next, 250); }); })();
+    }
+    function buildGenreBar() {
+      if (!Onyx.genreRow) return;
+      genreBar = Onyx.genreRow({
+        // télécommande : passer sur une catégorie suffit (petit délai pour pouvoir la traverser sans tout recharger)
+        onFocus: function (g) { prefetchGenres(); clearTimeout(pickT); pickT = setTimeout(function () { if (g) showGenre(g.id); else showHome(); }, g ? 450 : 200); },
+        onPick: function (g) {
+          if (g) showGenre(g.id); else showHome();
+          var first = g && genreRows[0] && Onyx.$('.card.f', genreRows[0]);
+          if (first) Onyx.focus.set(first);
+        }
+      });
+      track.insertBefore(genreBar, track.firstChild);
+      markBar();
+    }
+    // Retour : quitte la catégorie et revient au menu principal
+    var onKey = function (k) {
+      if (k.action !== 'back' || mode === null || !el.classList.contains('active')) return;
+      k.handled.stop = true;
+      showHome();
+      var homeChip = genreBar && Onyx.$('.home-chip', genreBar);
+      if (homeChip) Onyx.focus.set(homeChip);
+    };
+    Onyx.bus.on('key', onKey);
+    // depuis la recherche : ouvrir une catégorie sur l'accueil
+    var onPickGenre = function (id) { showGenre(id); };
+    Onyx.bus.on('home-genre', onPickGenre);
+
+    buildGenreBar();
     buildContinue();
     buildList();
     buildCatalogs();
@@ -139,8 +215,8 @@
     Onyx.bus.on('progress', markDirty);
     Onyx.bus.on('library', markDirty);
     var addonsChanged = function () {
-      track.innerHTML = ''; contRow = null; listRow = null; heroMeta = null;
-      buildContinue(); buildList(); buildCatalogs();
+      track.innerHTML = ''; contRow = null; listRow = null; heroMeta = null; mode = null; genreRows = []; genreBar = null;
+      buildGenreBar(); buildContinue(); buildList(); buildCatalogs();
     };
     Onyx.bus.on('addons-changed', addonsChanged);
 
@@ -155,12 +231,14 @@
     return {
       el: el,
       onShow: function () {
+        showHome(); // retour sur l'onglet : menu principal
         if (heroMeta) Onyx.backdrop.set(Onyx.bgOf(heroMeta), 'home');
         if (dirty) { dirty = false; buildContinue(); buildList(); updateListBtn(); }
       },
       focusDefault: function () { return Onyx.$('.btn.default', actions); },
       destroy: function () {
         Onyx.bus.off('progress', markDirty); Onyx.bus.off('library', markDirty); Onyx.bus.off('addons-changed', addonsChanged); Onyx.bus.off('focus', onFocusBus);
+        Onyx.bus.off('key', onKey); Onyx.bus.off('home-genre', onPickGenre);
       }
     };
   };

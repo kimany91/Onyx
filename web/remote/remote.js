@@ -515,9 +515,19 @@
     };
     return c;
   }
+  /* Catégories sur place : la rangée de cartes reste en haut ; toucher une catégorie affiche ses films
+     juste en dessous, la « maison » (à gauche) remet l'accueil. */
+  var phoneGenre = null, chipsEl = null, contentEl = null, genreTok = 0;
+  function markChips() {
+    if (!chipsEl) return;
+    Onyx.$$('.gcard', chipsEl).forEach(function (c) { c.classList.toggle('picked', (c._gid || null) === phoneGenre); });
+  }
   function genreChips() {
     var track = h('div.track.genres');
-    var cards = Onyx.Collections.GENRES.map(function (g) { var c = genreCard(g); track.appendChild(c); return c; });
+    var home = h('button.gcard.home-gcard', { 'aria-label': 'Accueil', html: '<span class="home-gico">' + Onyx.icons.home + '</span>' });
+    home.addEventListener('click', function () { pickGenre(null); });
+    track.appendChild(home);
+    var cards = Onyx.Collections.GENRES.map(function (g) { var c = genreCard(g); c._gid = g.id; track.appendChild(c); return c; });
     var i = 0;
     (function next() {
       if (i >= cards.length) return;
@@ -525,28 +535,41 @@
       cards[i++]._loadStill();
       setTimeout(next, 30);
     })();
-    return h('section.row.cats', [h('h2', { text: 'Catégories' }), track]);
+    chipsEl = h('section.row.cats', [h('h2', { text: 'Catégories' }), track]);
+    markChips();
+    return chipsEl;
   }
-  function renderGenre(g) {
-    searchInput.value = '';
-    browse.innerHTML = '';
-    var back = h('button.genre-back', { html: '&#8249; Catégories', onclick: function () { renderHome(); window.scrollTo(0, 0); } });
-    browse.appendChild(h('div.genre-head', [back, h('h1', { text: g.label })]));
-    var holder = h('div.loading', [h('i'), h('i'), h('i')]);
-    browse.appendChild(holder);
-    window.scrollTo(0, 0);
-    Onyx.Collections.genre(g.id).then(function (rows) {
-      holder.remove();
-      rows.forEach(function (r) { browse.appendChild(rowEl(r.title, r.metas, 'movie')); });
-      if (!rows.length) browse.appendChild(h('p.empty', { text: 'Aucun titre dans cette catégorie.' }));
-    });
+  function pickGenre(id) {
+    phoneGenre = id;
+    if (!chipsEl || !chipsEl.isConnected || !contentEl || !contentEl.isConnected) { renderHome(); return; }
+    markChips();
+    fillContent();
   }
+  function renderGenre(g) { searchInput.value = ''; pickGenre(g.id); }
 
   function renderHome() {
     browse.innerHTML = '';
-    if (LOCAL) { var cr = continueRow(); if (cr) browse.appendChild(cr); }
     browse.appendChild(genreChips());
-    if (!S.addons.length) { browse.appendChild(h('p.empty', { text: LOCAL ? 'Aucun addon : ajoute-en depuis l\'onglet Addons.' : online ? 'Aucun addon sur la TV.' : 'Connexion à la TV…' })); return; }
+    contentEl = h('div.home-content');
+    browse.appendChild(contentEl);
+    fillContent();
+  }
+  function fillContent() {
+    var box = contentEl, tok = ++genreTok;
+    box.innerHTML = '';
+    if (phoneGenre) {
+      var holder = h('div.loading', [h('i'), h('i'), h('i')]);
+      box.appendChild(holder);
+      Onyx.Collections.genre(phoneGenre).then(function (rows) {
+        if (tok !== genreTok) return;
+        if (holder.parentNode) holder.parentNode.removeChild(holder);
+        rows.forEach(function (r) { box.appendChild(rowEl(r.title, r.metas, 'movie')); });
+        if (!rows.length) box.appendChild(h('p.empty', { text: 'Aucun titre dans cette catégorie.' }));
+      });
+      return;
+    }
+    if (LOCAL) { var cr = continueRow(); if (cr) box.appendChild(cr); }
+    if (!S.addons.length) { box.appendChild(h('p.empty', { text: LOCAL ? 'Aucun addon : ajoute-en depuis l\'onglet Addons.' : online ? 'Aucun addon sur la TV.' : 'Connexion à la TV…' })); return; }
     // ordre : Au cinéma, 2 catalogues populaires, Classiques, Disney, Marvel, puis le reste
     var cats = S.homeCatalogs();
     var special = Onyx.Collections.homeRows;
@@ -556,9 +579,9 @@
     cats.slice(2, 10).forEach(function (cat) { specs.push({ title: label(cat), type: cat.type, load: function () { return S.catalog(cat.addon, cat.type, cat.id); } }); });
     specs.forEach(function (spec) {
       var holder = h('div');
-      browse.appendChild(holder);
+      box.appendChild(holder);
       spec.load().then(function (metas) {
-        if (metas.length && holder.isConnected) holder.replaceWith(rowEl(spec.title, metas, spec.type || 'movie'));
+        if (tok === genreTok && metas.length && holder.isConnected) holder.replaceWith(rowEl(spec.title, metas, spec.type || 'movie'));
       }).catch(function () { });
     });
   }
