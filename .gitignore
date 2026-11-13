@@ -11,3 +11,5 @@ desktop/web/
 # Divers
 .DS_Store
 Thumbs.db
+# APK copiés pour envoi (sorties de compilation)
+dist-apk/
