@@ -65,6 +65,13 @@ Accueil et navigation (TV et téléphone) :
   téléphone). Chaque carte a une icône 3D en métal poli : sélectionnée avec la télécommande (ou doigt
   posé dessus sur le téléphone), la carte s'illumine et l'icône tourne ; elle s'arrête quand on la quitte ;
 - animations fluides partout (transitions de pages, affiches qui apparaissent en cascade, boutons à ressort) ;
+- **ambiance du film** : quand un film est sélectionné, l'écran prend ses couleurs et un décor animé discret
+  (toiles pour Spider-Man, braises pour l'action, étoiles pour la science-fiction, brume pour l'horreur,
+  neige pour Noël, pluie pour les polars…) ;
+- **lancement façon console** : l'image du film s'ouvre depuis la carte en plein écran, le logo apparaît dans un
+  éclat de lumière, pendant que le chargement a déjà commencé ;
+- **sons d'interface** (créés dans l'app) pour la navigation, la validation, le retour et le lancement.
+  Sons, ambiance et animation de lancement se désactivent dans *Paramètres › Application*.
 - pendant la lecture, **flèche retour en haut à gauche** pour quitter le film.
 
 Lecture « comme Netflix » (TV, téléphone et PC) :
@@ -97,6 +104,9 @@ Lecture « comme Netflix » (TV, téléphone et PC) :
 - **écran de chargement cinématique** : images du film ou de la série qui défilent, logo, et une barre
   qui montre la vraie progression (sources, vérification, connexion aux pairs, mise en mémoire) jusqu'à la lecture ;
 - si une source n'a pas de pairs ou ne répond pas, Onyx passe automatiquement à la suivante ;
+- **pas de rechargements pendant le film** : le film en cours n'est jamais supprimé, ~90 s de film sont
+  téléchargées en priorité devant la lecture, le lecteur garde jusqu'à 3 min d'avance, et un saut
+  avant/arrière reprend en moins d'une seconde (les parties déjà téléchargées sont instantanées) ;
 - **taille des fichiers** : seuls le début et la fin sont nécessaires pour démarrer, donc un film de 10 Go
   démarre aussi vite qu'un de 1 Go. Par contre, regarder tout le film occupe sa taille sur l'appareil
   (vidé au film suivant) : Onyx évite les fichiers plus gros que l'espace libre quand une autre version existe ;

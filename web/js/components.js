@@ -10,17 +10,23 @@
       var root = Onyx.$('#backdrop');
       if (!root) return;
       root.className = mode || '';
+      if (mode === 'plain' && Onyx.ambient) Onyx.ambient.meta(null);
       if (url === bd.url) return;
       bd.url = url;
       var layers = Onyx.$$('.bd-layer', root);
       var next = layers[bd.idx = 1 - bd.idx], prev = layers[1 - bd.idx];
       if (!url) { next.classList.remove('show'); prev.classList.remove('show'); return; }
       var img = new Image();
+      // même mode de chargement que l'ambiance (couleurs du film) : une seule requête, partagée par le cache
+      img.crossOrigin = 'anonymous';
       img.onload = function () {
         if (bd.url !== url) return;
         next.style.backgroundImage = 'url("' + url + '")';
         next.classList.add('show');
         prev.classList.remove('show');
+      };
+      img.onerror = function () {
+        if (img.crossOrigin) { img.crossOrigin = null; img.removeAttribute('crossorigin'); img.src = url; }
       };
       img.src = url;
     }
@@ -94,6 +100,8 @@
     c._meta = meta;
     c.addEventListener('click', function () { (opts.onSelect || Onyx.openMeta)(meta, c); });
     if (opts.onFocus) c.addEventListener('focus', function () { opts.onFocus(meta, c); });
+    // l'ambiance de l'écran s'adapte au film sélectionné
+    c.addEventListener('focus', function () { if (Onyx.ambient) Onyx.ambient.meta(meta); });
     return c;
   };
 
@@ -324,18 +332,39 @@
     }
     function cleanup() { window.removeEventListener('onyx-player', onPlayer); }
 
+    // animation de lancement (le chargement, lui, a déjà commencé en parallèle)
+    var launched = false, onLaunched = [];
+    // pas d'animation pour un changement de langue / l'épisode suivant (on enchaîne directement)
+    var fx = Onyx.launchFx && !opts.quick ? Onyx.launchFx.play(meta, function () { launched = true; onLaunched.forEach(function (f) { f(); }); onLaunched = []; }) : null;
+    if (!Onyx.launchFx || opts.quick) launched = true;
+    function afterLaunch(f) { if (launched) f(); else onLaunched.push(f); }
+
     if (nb) {
       window.addEventListener('onyx-player', onPlayer);
-      nb.playerPrepare(JSON.stringify({ prepare: true, title: meta.name || '', subtitle: opts.label || '', logo: logo || '', images: images, videoId: opts.videoId || '' }));
+      var opened = false, queued = null, handed = false;
+      var send = function (o) { nb.playerProgress(JSON.stringify(o)); };
+      afterLaunch(function () {
+        if (api.cancelled || handed) return;
+        opened = true;
+        nb.playerPrepare(JSON.stringify({ prepare: true, title: meta.name || '', subtitle: opts.label || '', logo: logo || '', images: images, videoId: opts.videoId || '' }));
+        if (queued) send(queued);
+      });
       api.stage = function (st, label, detail, pct) {
         if (api.cancelled) return;
         if (st < last.st || pct < last.pct) return;
         last = { st: st, pct: pct };
-        nb.playerProgress(JSON.stringify({ stage: st, label: label, detail: detail || '', pct: pct }));
+        var o = { stage: st, label: label, detail: detail || '', pct: pct };
+        if (opened) send(o); else queued = o;
       };
       api.status = function (t) { api.stage(Math.max(0, last.st), '', t, last.pct); };
-      api.handoff = function () { cleanup(); };
-      api.close = function (reason) { cleanup(); if (!api.cancelled && typeof nb.closePlayer === 'function') nb.closePlayer(reason || ''); };
+      // le lecteur s'ouvre directement : l'écran de préparation n'est plus nécessaire
+      api.handoff = function () { handed = true; cleanup(); };
+      api.close = function (reason) {
+        cleanup();
+        if (!opened && fx) fx.cancel();
+        if (!api.cancelled && opened && typeof nb.closePlayer === 'function') nb.closePlayer(reason || '');
+        api.cancelled = true;
+      };
       return api;
     }
 
@@ -351,7 +380,7 @@
       h('button.ld-cancel.f', { type: 'button', html: Onyx.icons.back + '<span>Annuler</span>', onclick: function () { api.cancelled = true; api.close(); } })
     ]);
     document.body.appendChild(root);
-    requestAnimationFrame(function () { root.classList.add('in'); });
+    afterLaunch(function () { requestAnimationFrame(function () { root.classList.add('in'); }); });
     var shown = 0, slide = 0, timer = null;
     function nextSlide() {
       if (!images.length || !root.isConnected) return;

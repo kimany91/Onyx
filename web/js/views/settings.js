@@ -113,6 +113,9 @@
 
       section('Application');
       choice('Animation de démarrage', 'splash', [{ value: true, label: 'Activée' }, { value: false, label: 'Désactivée' }], { icon: 'star' });
+      choice('Sons de l\'interface', 'sounds', [{ value: true, label: 'Activés' }, { value: false, label: 'Désactivés' }], { icon: 'star', help: 'Petits sons quand tu navigues, valides ou lances un film' });
+      choice('Ambiance du film', 'ambience', [{ value: true, label: 'Activée' }, { value: false, label: 'Désactivée' }], { icon: 'star', help: 'Couleurs et effets de l\'écran adaptés au film sélectionné' });
+      choice('Animation de lancement', 'launchFx', [{ value: true, label: 'Activée' }, { value: false, label: 'Désactivée' }], { icon: 'play' });
       row('Nom de la TV', set.get('tvName'), function () {
         Onyx.prompt('Nom affiché sur le téléphone', { value: set.get('tvName'), symbols: false }).then(function (v) {
           if (v) { set.set('tvName', v.trim()); Onyx.app.pushState(); render(); }

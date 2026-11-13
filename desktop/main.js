@@ -95,6 +95,16 @@ function checkUpdate(manual) {
 app.on('second-instance', () => { if (win) { if (win.isMinimized()) win.restore(); win.focus(); } });
 
 app.whenReady().then(async () => {
+  // images des films : autorisation CORS ajoutée pour que l'ambiance puisse lire leurs couleurs
+  try {
+    const { session } = require('electron');
+    session.defaultSession.webRequest.onHeadersReceived({ urls: ['https://images.metahub.space/*', 'https://m.media-amazon.com/*', 'https://image.tmdb.org/*'] }, (d, cb) => {
+      const h = d.responseHeaders || {};
+      Object.keys(h).forEach((k) => { if (k.toLowerCase() === 'access-control-allow-origin') delete h[k]; });
+      h['Access-Control-Allow-Origin'] = ['*'];
+      cb({ responseHeaders: h });
+    });
+  } catch (e) { }
   server = new RemoteServer({
     webDir: WEB_DIR,
     dataFile: path.join(app.getPath('userData'), 'remote.json'),

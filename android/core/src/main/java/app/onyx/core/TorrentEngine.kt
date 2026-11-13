@@ -76,6 +76,11 @@ object TorrentEngine {
         @Volatile var cancelled = false
         @Volatile var mode = PROBE
         @Volatile var trickleStarted = false
+        /** Film en cours de lecture : jamais supprimé tant que le lecteur ne l'a pas libéré. */
+        @Volatile var playing = false
+        /** Lecture en cours sur le serveur local (une seule à la fois par torrent). */
+        @Volatile var stream: InputStream? = null
+        @Volatile var streamPos = 0L
         /** Morceaux déjà rendus prioritaires (évite des milliers d'appels inutiles). */
         val prioritized: MutableSet<Int> = ConcurrentHashMap.newKeySet()
         val ready = CountDownLatch(1)
@@ -192,6 +197,7 @@ object TorrentEngine {
         synchronized(entries) {
             e = entries[h] ?: Entry(h, fileIdx, filename, sources).also { it.mode = mode; entries[h] = it; created = true }
         }
+        if (mode == STREAM) e.playing = true
         if (created) start(e)
         else if (mode > e.mode) { e.mode = mode; applyMode(e) }
         if (mode >= PREWARM) e.lastUse = System.currentTimeMillis()
@@ -218,7 +224,15 @@ object TorrentEngine {
     fun keepOnly(hashes: Collection<String>) {
         val keep = hashes.map { it.lowercase() }.toSet()
         val now = System.currentTimeMillis()
-        entries.values.filter { it.hash !in keep && !(it.mode == STREAM && now - it.lastUse < 60_000) }.forEach { remove(it.hash) }
+        entries.values.filter { it.hash !in keep && !it.playing && !(it.mode == STREAM && now - it.lastUse < 10 * 60_000) }.forEach { remove(it.hash) }
+    }
+
+    /** Le lecteur a fermé ce film : il redevient un torrent ordinaire (gardé un moment pour une reprise rapide). */
+    fun stopPlaying(hash: String?) {
+        val e = entries[hash?.lowercase() ?: return] ?: return
+        e.playing = false
+        e.lastUse = System.currentTimeMillis()
+        try { e.stream?.close() } catch (_: Exception) { }
     }
 
     /** Applique la stratégie de téléchargement du mode actuel (une fois les métadonnées reçues). */
@@ -275,7 +289,7 @@ object TorrentEngine {
     /** Limite le nombre de torrents : on retire d'abord les sondes les plus anciennes. */
     private fun trim() {
         if (entries.size <= MAX_ENTRIES) return
-        entries.values.sortedWith(compareBy<Entry>({ it.mode }, { it.lastUse }))
+        entries.values.filter { !it.playing }.sortedWith(compareBy<Entry>({ it.mode }, { it.lastUse }))
             .take(entries.size - MAX_ENTRIES).forEach { remove(it.hash) }
     }
 
@@ -356,7 +370,7 @@ object TorrentEngine {
     }
 
     /** Fixe des échéances pour les morceaux couvrant [start, start+len) du fichier (lecture prioritaire). */
-    private fun window(e: Entry, start: Long, len: Long, baseDeadline: Int, forcePriority: Boolean = false) {
+    private fun window(e: Entry, start: Long, len: Long, baseDeadline: Int, forcePriority: Boolean = false, spacing: Int = 150) {
         val ti = e.info ?: return
         val th = e.handle ?: return
         val fs = ti.files()
@@ -371,7 +385,7 @@ object TorrentEngine {
                 // en préchargement le fichier est ignoré : il faut autoriser ces morceaux un par un
                 if (forcePriority && e.prioritized.add(p)) th.piecePriority(p, Priority.TOP_PRIORITY)
                 // échéances toujours dans le futur (rafraîchies au fil de la lecture)
-                th.setPieceDeadline(p, baseDeadline + k * 150)
+                th.setPieceDeadline(p, baseDeadline + k * spacing)
             }
             k++
         }
@@ -478,10 +492,28 @@ object TorrentEngine {
         private val fileStart = ti.files().fileOffset(e.fileIndex)
         private val path = File(dir, ti.files().filePath(e.fileIndex))
         private var lastWindowPiece = -1000
-        private val step = 1
         private var closed = false
+        private val fileSize = ti.files().fileSize(e.fileIndex)
+        /** Débit moyen du film (taille / ~2 h) : sert à garder ~90 s de vidéo d'avance en priorité. */
+        private val rate = maxOf(256L * 1024, fileSize / 7200)
+        private val ahead = (rate * 90).coerceIn(64L * 1024 * 1024, 512L * 1024 * 1024)
+        /** Écart réel entre deux morceaux à la vitesse de lecture (ms), borné pour rester urgent. */
+        private val spacing = ((pl * 1000 / rate).toInt()).coerceIn(80, 1500)
 
-        init { window(e, pos, 16L * 1024 * 1024, 0) }
+        init {
+            val th = e.handle
+            val prev = e.stream
+            // saut dans le film : les anciennes échéances (déjà dépassées, donc « ultra urgentes »)
+            // passeraient avant la nouvelle position → on les efface et on ferme l'ancienne lecture
+            if (th != null && (prev == null || kotlin.math.abs(pos - e.streamPos) > 32L * 1024 * 1024)) {
+                try { th.clearPieceDeadlines() } catch (_: Exception) { }
+            }
+            if (prev != null && prev !== this) try { prev.close() } catch (_: Exception) { }
+            e.stream = this; e.streamPos = pos
+            // les premiers Mo à la nouvelle position passent avant tout le reste
+            window(e, pos, 16L * 1024 * 1024, 0, true, 60)
+            window(e, pos, ahead, 0, false, spacing)
+        }
 
         override fun read(): Int {
             val b = ByteArray(1)
@@ -492,11 +524,15 @@ object TorrentEngine {
             if (pos > end) return -1
             val th = e.handle ?: throw IOException("torrent fermé")
             val piece = ((fileStart + pos) / pl).toInt()
-            // fenêtre glissante de 48 Mo devant la lecture (réserve contre les coupures), échéances rafraîchies à chaque morceau
-            if (piece >= lastWindowPiece + step || piece < lastWindowPiece) { lastWindowPiece = piece; window(e, pos, 48L * 1024 * 1024, 0) }
+            // fenêtre glissante (~90 s de film) devant la lecture, échéances rafraîchies à chaque morceau
+            if (piece != lastWindowPiece) { lastWindowPiece = piece; window(e, pos, ahead, 0, false, spacing) }
+            var waited = 0
             while (!th.havePiece(piece)) {
                 if (closed || e.cancelled || !th.isValid) throw IOException("lecture interrompue")
                 Thread.sleep(30)
+                // morceau bloquant : on le redemande en urgence toutes les 2 s
+                waited += 30
+                if (waited % 2000 < 30) try { th.setPieceDeadline(piece, 0) } catch (_: Exception) { }
             }
             e.lastUse = System.currentTimeMillis()
             val pieceEndInFile = (piece + 1) * pl - fileStart
@@ -506,10 +542,15 @@ object TorrentEngine {
             val r = f.read(b, off, n)
             if (r <= 0) { Thread.sleep(20); return 0 }
             pos += r
+            if (e.stream === this) e.streamPos = pos
             return r
         }
 
-        override fun close() { closed = true; try { raf?.close() } catch (_: Exception) { } }
+        override fun close() {
+            closed = true
+            if (e.stream === this) e.stream = null
+            try { raf?.close() } catch (_: Exception) { }
+        }
     }
 
     fun parseSources(json: String?): List<String> = try {

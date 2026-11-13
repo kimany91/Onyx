@@ -216,11 +216,13 @@
       var now = Date.now();
       if (repeat && now - lastMove < 90) return true;
       lastMove = now;
+      var before = F.cur;
       F.move(action);
+      if (Onyx.sfx) Onyx.sfx(F.cur !== before ? 'move' : 'bump', { vertical: action === 'up' || action === 'down' });
       return true;
     }
-    if (action === 'ok') { F.ok(); return true; }
-    if (action === 'back') { Onyx.app && Onyx.app.back(); return true; }
+    if (action === 'ok') { if (Onyx.sfx && F.cur && !F.cur.hasAttribute('data-nosfx')) Onyx.sfx('select'); F.ok(); return true; }
+    if (action === 'back') { if (Onyx.sfx) Onyx.sfx('back'); Onyx.app && Onyx.app.back(); return true; }
     return false;
   };
 

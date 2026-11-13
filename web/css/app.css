@@ -648,3 +648,46 @@ body.mouse .f { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; transition-duration: .01ms !important; }
 }
+
+/* ---------- Ambiance du film sélectionné ---------- */
+#ambient { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 0; pointer-events: none; }
+.amb-glow { position: absolute; top: 0; left: 0; right: 0; bottom: 0; opacity: 0; transition: opacity 1.2s var(--out); }
+.amb-glow.show { opacity: 1; }
+.amb-fx { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+body.playing #ambient { visibility: hidden; }
+/* les éléments actifs prennent discrètement la couleur du film */
+.card.focused { box-shadow: 0 0 0 .22rem #fff, 0 1rem 2.6rem rgba(0, 0, 0, .8), 0 0 2.6rem var(--amb-soft, var(--glow)); transition: transform .5s var(--spring), box-shadow .6s var(--out); }
+.btn.focused { box-shadow: 0 .6rem 2rem rgba(0, 0, 0, .6), 0 0 0 .2rem rgba(255, 255, 255, .25), 0 0 2.4rem var(--amb-soft, transparent); }
+.side-item.active::before { background: var(--amb, #fff); transition: background 1s; }
+
+/* ---------- Lancement d'un film (façon console) ---------- */
+#launch { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 200; pointer-events: none; overflow: hidden; }
+#launch .lc-bg {
+  position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000 center / cover no-repeat;
+  filter: brightness(.75) saturate(1.1); transform: scale(1);
+  transition: clip-path .75s cubic-bezier(.7, 0, .2, 1), -webkit-clip-path .75s cubic-bezier(.7, 0, .2, 1);
+}
+#launch.go .lc-bg { clip-path: inset(0 0 0 0 round 0) !important; -webkit-clip-path: inset(0 0 0 0 round 0) !important; animation: lcZoom 2.2s cubic-bezier(.2, .7, .2, 1) forwards; }
+@keyframes lcZoom {
+  0% { transform: scale(1); filter: brightness(.75) saturate(1.1); }
+  45% { filter: brightness(1.05) saturate(1.25); }
+  100% { transform: scale(1.14); filter: brightness(.55) saturate(1.2); }
+}
+#launch .lc-glow { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(45% 55% at 50% 50%, var(--lc-soft), transparent 70%); opacity: 0; mix-blend-mode: screen; }
+#launch.go .lc-glow { animation: lcGlow 1.7s ease-out .35s forwards; }
+@keyframes lcGlow { 0% { opacity: 0; } 35% { opacity: 1; } 100% { opacity: .35; } }
+#launch .lc-ring { position: absolute; left: 50%; top: 50%; width: 10rem; height: 10rem; margin: -5rem 0 0 -5rem; border-radius: 50%; border: .15rem solid rgba(255, 255, 255, .7); box-shadow: 0 0 2rem var(--lc), inset 0 0 1.4rem var(--lc-soft); opacity: 0; }
+#launch.go .lc-ring { animation: lcRing 1.2s cubic-bezier(.2, .7, .2, 1) .45s forwards; }
+@keyframes lcRing { 0% { opacity: .9; transform: scale(.3); } 100% { opacity: 0; transform: scale(9); } }
+#launch .lc-center { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: center; }
+#launch .lc-title { opacity: 0; transform: scale(.82); font-size: 5rem; font-weight: 800; letter-spacing: -.02em; color: #fff; text-align: center; padding: 0 6rem; text-shadow: 0 .4rem 3rem rgba(0, 0, 0, .7); }
+#launch .lc-logo { display: block; max-width: 46vw; max-height: 30vh; filter: drop-shadow(0 0 2.2rem var(--lc-soft)) drop-shadow(0 .5rem 2rem rgba(0, 0, 0, .6)); }
+#launch.go .lc-title { animation: lcLogo 1.6s cubic-bezier(.34, 1.4, .64, 1) .4s forwards; }
+@keyframes lcLogo { 0% { opacity: 0; transform: scale(.82); } 30% { opacity: 1; transform: scale(1.03); } 55% { transform: scale(1); } 100% { opacity: 1; transform: scale(1.04); } }
+#launch .lc-sweep { position: absolute; top: -20%; bottom: -20%; left: -40%; width: 30%; background: linear-gradient(100deg, transparent, rgba(255, 255, 255, .22), transparent); transform: skewX(-16deg); opacity: 0; mix-blend-mode: screen; }
+#launch.go .lc-sweep { animation: lcSweep 1s cubic-bezier(.4, 0, .2, 1) .7s forwards; }
+@keyframes lcSweep { 0% { left: -40%; opacity: 1; } 100% { left: 120%; opacity: 1; } }
+#launch .lc-black { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #000; opacity: 0; }
+#launch.go .lc-black { animation: lcBlack .45s ease-in 1.35s forwards; }
+@keyframes lcBlack { to { opacity: 1; } }
+#launch.out { opacity: 0; transition: opacity .6s var(--out); }

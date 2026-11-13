@@ -39,6 +39,7 @@
     }
 
     var setHeroNow = function (meta) {
+      if (Onyx.ambient && meta) Onyx.ambient.meta(meta);
       if (!meta) return;
       heroMeta = meta;
       heroTitle.innerHTML = '';

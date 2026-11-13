@@ -1,5 +1,6 @@
 package app.onyx.tv
 
+import app.onyx.core.ImageProxy
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Intent
@@ -71,7 +72,7 @@ class MainActivity : Activity() {
         if (BuildConfig.DEBUG) WebView.setWebContentsDebuggingEnabled(true)
         web.webViewClient = object : WebViewClient() {
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? =
-                loader.shouldInterceptRequest(request.url)
+                loader.shouldInterceptRequest(request.url) ?: ImageProxy.intercept(request)
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
                 val u = request.url

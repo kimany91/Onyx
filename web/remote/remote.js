@@ -152,7 +152,7 @@
   function playPhone(meta, video, opts) {
     var vid = vidOf(meta, video);
     var prefs = S.prefs.forShow(meta.id);
-    var loading = Onyx.loader({ meta: meta, video: video, label: epLabel(video), videoId: vid });
+    var loading = Onyx.loader({ meta: meta, video: video, label: epLabel(video), videoId: vid, quick: !!opts && opts.startAt !== undefined });
     var subsP = withTimeout(S.subtitles(meta.type, vid, {}), 4000, []);
     S.collect(meta.type, vid, function (n, done, total, el, x) {
       loading.stage(0, 'Recherche des sources', S.collectText(n, done, total, el, x), (x ? x.frac : done / Math.max(1, total)) * 25);
@@ -481,6 +481,7 @@
 
   var detailRefresh = null;
   function openDetail(m) {
+    if (Onyx.ambient) Onyx.ambient.meta(m); // couleurs du film prêtes pour l'animation de lancement
     sheetBody.innerHTML = '';
     sheetBody.scrollTop = 0;
     detailRefresh = null;
@@ -814,4 +815,14 @@
     el.textContent = t; el.classList.add('show');
     clearTimeout(toastT); toastT = setTimeout(function () { el.classList.remove('show'); }, 2200);
   }
+
+  /* Sons de l'interface (téléphone) : onglets, boutons, cartes */
+  document.addEventListener('click', function (e) {
+    if (!Onyx.sfx) return;
+    var t = e.target.closest && e.target.closest('button, .card, .ep, a');
+    if (!t) return;
+    if (t.closest('.tabs')) Onyx.sfx('move');
+    else if (t.classList.contains('genre-back') || t.classList.contains('sheet-close') || /close|back/.test(t.className)) Onyx.sfx('back');
+    else Onyx.sfx('select');
+  }, true);
 })();

@@ -35,7 +35,7 @@
     var type = meta.type, videoId = videoIdOf(meta, video);
     var prefs = S.prefs.forShow(meta.id);
     if (opts.prefs) Object.keys(opts.prefs).forEach(function (k) { prefs[k] = opts.prefs[k]; });
-    var loading = Onyx.loader({ meta: meta, video: video, label: epLabel(video), videoId: videoId });
+    var loading = Onyx.loader({ meta: meta, video: video, label: epLabel(video), videoId: videoId, quick: opts.startAt !== undefined });
     // sous-titres en parallèle : aucune attente supplémentaire au lancement
     var subsP = withTimeout(S.subtitles(type, videoId, {}), 4000, []);
     var itemsP = opts.items ? Promise.resolve(opts.items) : S.collect(type, videoId, function (n, done, total, el, x) {

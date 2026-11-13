@@ -119,6 +119,7 @@
       if (cast.length) credits.appendChild(h('div', [h('span.k', { text: 'Avec : ' }), cast.slice(0, 5).join(', ')]));
       if (dir && dir.length) credits.appendChild(h('div', [h('span.k', { text: 'Réalisation : ' }), [].concat(dir).slice(0, 3).join(', ')]));
       Onyx.backdrop.set(Onyx.bgOf(m), 'detail');
+      if (Onyx.ambient) Onyx.ambient.meta(m);
     }
 
     function videosOf(m) {

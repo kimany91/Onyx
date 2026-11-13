@@ -293,11 +293,13 @@ class PlayerActivity : Activity() {
         val headers = HashMap<String, String>()
         o.optJSONObject("headers")?.let { h -> h.keys().forEach { k -> headers[k] = h.optString(k) } }
         rxBytes = 0L; rxLast = 0L; rxAt = System.currentTimeMillis(); rxSpeed = 0
+        val previousHash = torrentHash
         torrentHash = Regex("^http://127\\.0\\.0\\.1:\\d+/stream/([0-9a-f]{40})").find(url)?.groupValues?.get(1)
         val http = DefaultHttpDataSource.Factory()
             .setUserAgent(headers.remove("User-Agent") ?: "Mozilla/5.0 (Linux; Android) Onyx")
             .setAllowCrossProtocolRedirects(true)
             .setConnectTimeoutMs(15000).setReadTimeoutMs(if (torrentHash != null) 180000 else 30000)
+            .also { if (previousHash != null && previousHash != torrentHash) TorrentEngine.stopPlaying(previousHash) }
             .setKeepPostFor302Redirects(true)
             .setDefaultRequestProperties(headers)
             .setTransferListener(object : androidx.media3.datasource.TransferListener {
@@ -311,7 +313,10 @@ class PlayerActivity : Activity() {
             .setLoadErrorHandlingPolicy(DefaultLoadErrorHandlingPolicy(2))
         // démarrage rapide : lecture dès ~1,5 s de vidéo en mémoire
         val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(15000, 60000, 1500, 3000)
+            // démarrage rapide (1,5 s), puis grosse réserve (jusqu.à 3 min ou 100 Mo de film en mémoire).
+            // Après une coupure on attend 10 s de réserve : pas de micro-chargements à répétition.
+            .setBufferDurationsMs(30000, 180000, 1500, 10000)
+            .setTargetBufferBytes(100 * 1024 * 1024)
             .setPrioritizeTimeOverSizeThresholds(true)
             .build()
 
@@ -676,6 +681,7 @@ class PlayerActivity : Activity() {
         report(true)
         player?.release()
         player = null
+        TorrentEngine.stopPlaying(torrentHash)
         if (current === this) current = null
     }
 

@@ -84,7 +84,7 @@
   Onyx.settings = {
     defaults: {
       streamLang: 'fr', subLang: 'fr', player: 'internal', streamServer: 'http://127.0.0.1:11470',
-      autoNext: true, splash: true, tvName: 'Onyx TV'
+      autoNext: true, splash: true, tvName: 'Onyx TV', sounds: true, ambience: true, launchFx: true
     },
     get: function (k) { var s = Onyx.store.get('settings', {}); return k in s ? s[k] : this.defaults[k]; },
     set: function (k, v) { var s = Onyx.store.get('settings', {}); s[k] = v; Onyx.store.set('settings', s); Onyx.bus.emit('settings', { key: k, value: v }); }
