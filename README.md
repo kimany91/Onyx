@@ -65,9 +65,10 @@ Accueil et navigation (TV et téléphone) :
   téléphone). Chaque carte a une icône 3D en métal poli : sélectionnée avec la télécommande (ou doigt
   posé dessus sur le téléphone), la carte s'illumine et l'icône tourne ; elle s'arrête quand on la quitte ;
 - animations fluides partout (transitions de pages, affiches qui apparaissent en cascade, boutons à ressort) ;
-- **ambiance du film** : quand un film est sélectionné, l'écran prend ses couleurs et un décor animé discret
-  (toiles pour Spider-Man, braises pour l'action, étoiles pour la science-fiction, brume pour l'horreur,
-  neige pour Noël, pluie pour les polars…) ;
+- **ambiance du film** : quand un film est sélectionné, l'écran prend ses couleurs et des effets de lumière
+  et d'animation propres à ce film : 36 effets (toiles, hyperespace, code Matrix, reflets sous l'eau, aurores,
+  portail d'étincelles, éclairs, néons, rayons de lumière, sable, lanternes, grain de vieux film…), combinés
+  pour ~1 360 films et séries connus (web/js/fx-data.js), sinon choisis selon le titre ou le genre ;
 - **lancement façon console** : l'image du film s'ouvre depuis la carte en plein écran, le logo apparaît dans un
   éclat de lumière, pendant que le chargement a déjà commencé ;
 - **sons d'interface** (créés dans l'app) pour la navigation, la validation, le retour et le lancement.
