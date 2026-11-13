@@ -94,6 +94,7 @@
       var specs = [];
       var special = (Onyx.Collections && Onyx.Collections.homeRows) || [];
       if (special[0]) specs.push({ title: special[0].title, load: special[0].load });
+      if (Onyx.genreRow) specs.push({ genres: true });
       cats.slice(0, 2).forEach(function (cat) { specs.push(catSpec(cat)); });
       special.slice(1).forEach(function (r) { specs.push({ title: r.title, load: r.load }); });
       cats.slice(2, 18).forEach(function (cat) { specs.push(catSpec(cat)); });
@@ -103,6 +104,7 @@
       }
       var first = true;
       specs.forEach(function (spec) {
+        if (spec.genres) { track.appendChild(Onyx.genreRow()); return; }
         var row = Onyx.row(spec.title);
         Onyx.skeletonRow(9).forEach(function (s) { row.track.appendChild(s); });
         track.appendChild(row);

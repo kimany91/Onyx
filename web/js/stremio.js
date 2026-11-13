@@ -445,7 +445,7 @@
         var hs = S.health(hashes), el = Date.now() - t0;
         var ok = hashes.filter(function (h) { return alive(hs[h]); });
         var dht = 0; hashes.forEach(function (h) { dht = Math.max(dht, (hs[h] && hs[h].dht) || 0); });
-        if (onStatus) onStatus('Vérification des sources… ' + ok.length + '/' + hashes.length + ' actives' + (dht ? '' : ' · connexion au réseau'));
+        if (onStatus) onStatus('Vérification des sources', ok.length + '/' + hashes.length + ' sources actives' + (dht ? '' : ' · connexion au réseau'), Math.min(1, el / 2500));
         // favori vivant → on y va ; sinon on laisse quelques secondes aux autres
         // on laisse ~1,5 s pour comparer le nombre de pairs (plus de pairs = téléchargement plus rapide)
         var done = (ok.length && alive(hs[hashes[0]]) && el > 1500) || (ok.length && el > 2500) || el > 14000;

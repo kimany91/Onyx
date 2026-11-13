@@ -152,13 +152,13 @@
   function playPhone(meta, video, opts) {
     var vid = vidOf(meta, video);
     var prefs = S.prefs.forShow(meta.id);
-    var loading = loadingSheet(meta, video);
+    var loading = Onyx.loader({ meta: meta, video: video, label: epLabel(video), videoId: vid });
     var subsP = withTimeout(S.subtitles(meta.type, vid, {}), 4000, []);
     S.collect(meta.type, vid, function (n, done, total, el) {
-      loading.status('Recherche des sources… ' + done + '/' + total + ' addons' + (n ? ' · ' + n + ' fichiers' : '') + (el > 4000 ? ' · ' + Math.round(el / 1000) + ' s' : ''));
+      loading.stage(0, 'Recherche des sources', done + '/' + total + ' addons ont répondu' + (n ? ' · ' + n + ' fichiers' : '') + (el > 4000 && done < total ? ' · ' + Math.round(el / 1000) + ' s' : ''), done / Math.max(1, total) * 25);
     }).then(function (items) {
       if (loading.cancelled) return;
-      if (!items.length) { loading.close(); toast('Aucune source trouvée avec tes addons'); return; }
+      if (!items.length) { loading.close('aucune source trouvée'); toast('Aucune source trouvée avec tes addons'); return; }
       var ranked = S.rank(items, prefs);
       if (opts.stream) {
         ranked = [{ stream: opts.stream, info: S.streamInfo(opts.stream) }].concat(ranked.filter(function (x) { return !S.sameStream(x.stream, opts.stream); }));
@@ -173,7 +173,8 @@
       var ctx = cur;
       if (!meta.videos && meta.type === 'series') S.meta(meta.type, meta.id).then(function (m) { if (cur && cur.meta === meta) cur.meta = m; }, function () { });
       // torrents : on vérifie lesquels ont vraiment des pairs avant de lancer
-      (opts.stream ? Promise.resolve(ranked) : S.pickHealthy(ranked, loading.status)).then(function (r) {
+      loading.stage(1, 'Vérification des sources', items.length + ' fichiers trouvés', 25);
+      (opts.stream ? Promise.resolve(ranked) : S.pickHealthy(ranked, function (label, detail, frac) { loading.stage(1, label, detail, 25 + frac * 15); })).then(function (r) {
         if (loading.cancelled) return;
         ctx.ranked = r;
         startPhone(ctx, 0, loading);
@@ -184,13 +185,13 @@
   function startPhone(ctx, i, loading) {
     var cand = ctx.ranked[i];
     if (!cand) {
-      if (loading) loading.close();
-      if (phone.closePlayer) phone.closePlayer('aucune source lisible');
+      if (loading) loading.close('aucune source lisible');
+      else if (phone.closePlayer) phone.closePlayer('aucune source lisible');
       toast('Aucune source n\'a pu être lue');
       return;
     }
     ctx.tryIndex = i; ctx.stream = cand.stream; ctx.info = cand.info;
-    if (loading) loading.status(S.describe(cand.info) + (cand.addon ? '  ·  ' + cand.addon.manifest.name : ''));
+    if (loading) loading.stage(1, 'Préparation de la lecture', S.describe(cand.info) + (cand.addon ? '  ·  ' + cand.addon.manifest.name : ''), 42);
     var prog = Onyx.progress.get(ctx.vid);
     var startAt = ctx.startAt !== undefined ? ctx.startAt : (prog && !prog.watched && prog.position > 20 ? prog.position : 0);
     S.resolve(cand.stream, localStorage.getItem('onyx.phoneStreamServer') || 'http://127.0.0.1:11470').then(function (res) {
@@ -199,7 +200,7 @@
       ctx.subsP = ctx.subsP || withTimeout(S.subtitles(ctx.meta.type, ctx.vid, {}), 4000, []);
       return withTimeout(ctx.subsP, res.torrent ? 300 : 1200, []).then(function (subs) {
         if (loading && loading.cancelled) return;
-        if (loading) loading.close();
+        if (loading) loading.handoff();
         var v = ctx.video;
         var prev = Onyx.progress.get(ctx.vid);
         Onyx.progress.update({
@@ -216,7 +217,8 @@
           audioLang: ctx.prefs.audio, subLang: ctx.prefs.subs, subtitlesAuto: ctx.prefs.subs !== 'off',
           deviceLang: S.deviceLang(), menu: menu,
           background: ctx.meta.background || (/^tt/.test(ctx.meta.id) ? 'https://images.metahub.space/background/medium/' + ctx.meta.id + '/img' : ''),
-          poster: ctx.meta.poster || ''
+          poster: ctx.meta.poster || '',
+          logo: Onyx.logoOf(ctx.meta) || '', images: Onyx.cinematicImages(ctx.meta, v)
         }));
       });
     }).catch(function () { if (!(loading && loading.cancelled)) startPhone(ctx, i + 1, loading); });
@@ -243,7 +245,7 @@
 
   window.addEventListener('onyx-player', function (e) {
     var d = e.detail; try { d = JSON.parse(d); } catch (x) { }
-    if (!d || !cur || (d.videoId && d.videoId !== cur.vid)) return;
+    if (!d || !cur || d.cancelled || (d.videoId && d.videoId !== cur.vid)) return;
     var ctx = cur;
     if (d.position !== undefined && !d.failed) Onyx.progress.update({ videoId: ctx.vid, position: d.position / 1000, duration: d.duration / 1000, ended: !!d.ended });
     if (d.duration > 0 && d.position / d.duration > 0.85 && !ctx.nextWarm && S.hasTorrentEngine()) {
@@ -382,14 +384,56 @@
     });
     return track.children.length ? h('section.row', [h('h2', { text: 'Reprendre la lecture' }), track]) : null;
   }
-  /* Catégories (comme sur Netflix) : pastilles colorées en haut de l'Explorer */
+  /* Catégories (comme sur Netflix) : petites cartes avec icône 3D en métal poli.
+     Doigt posé dessus : la carte s'illumine et l'icône tourne ; doigt levé : elle s'arrête. */
+  function genreCard(g) {
+    var still = h('img.g3d-still', { alt: '' });
+    var box = h('div.g3d-box', [h('span.g3d-flat', { html: Onyx.genreIcon(g.id) }), still]);
+    var c = h('button.gcard', [h('div.gcard-bg'), box, h('span.gcard-label', { text: g.label })]);
+    c.style.setProperty('--gc', g.color);
+    var G = Onyx.Genre3D, timer = 0, held = false, x0 = 0, y0 = 0;
+    var px = function () { return Math.round(Math.max(box.clientWidth, 64) * Math.min(2, window.devicePixelRatio || 1)); };
+    var release = function () {
+      clearTimeout(timer);
+      if (!c.classList.contains('held')) return;
+      c.classList.remove('held');
+      if (G && G.supported) G.detach();
+    };
+    c.addEventListener('touchstart', function (e) {
+      held = false; x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+      clearTimeout(timer);
+      timer = setTimeout(function () {
+        held = true;
+        c.classList.add('held');
+        if (navigator.vibrate) try { navigator.vibrate(8); } catch (er) { }
+        if (G && G.supported) G.attach(box, g.id, g.color, px());
+      }, 320);
+    }, { passive: true });
+    c.addEventListener('touchmove', function (e) {
+      var t = e.touches[0];
+      if (Math.abs(t.clientX - x0) > 10 || Math.abs(t.clientY - y0) > 10) release();
+    }, { passive: true });
+    c.addEventListener('touchend', release);
+    c.addEventListener('touchcancel', release);
+    c.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    c.addEventListener('click', function (e) { if (held) { held = false; e.preventDefault(); return; } renderGenre(g); });
+    c._loadStill = function () {
+      if (!G || !G.supported) return;
+      var src = G.thumb(g.id, g.color, px());
+      if (src) { still.onload = function () { box.classList.add('ready'); }; still.src = src; }
+    };
+    return c;
+  }
   function genreChips() {
     var track = h('div.track.genres');
-    Onyx.Collections.GENRES.forEach(function (g) {
-      var c = h('button.genre-chip', { text: g.label, style: { background: 'linear-gradient(135deg, ' + g.color + ', rgba(0,0,0,.35) 160%)' } });
-      c.addEventListener('click', function () { renderGenre(g); });
-      track.appendChild(c);
-    });
+    var cards = Onyx.Collections.GENRES.map(function (g) { var c = genreCard(g); track.appendChild(c); return c; });
+    var i = 0;
+    (function next() {
+      if (i >= cards.length) return;
+      if (!track.isConnected) { setTimeout(next, 250); return; }
+      cards[i++]._loadStill();
+      setTimeout(next, 30);
+    })();
     return h('section.row.cats', [h('h2', { text: 'Catégories' }), track]);
   }
   function renderGenre(g) {

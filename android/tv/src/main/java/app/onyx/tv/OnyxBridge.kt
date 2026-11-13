@@ -55,6 +55,17 @@ class OnyxBridge(private val activity: MainActivity) {
 
     @JavascriptInterface fun playerMessage(text: String) { OnyxApp.main.post { PlayerActivity.current?.message(text) } }
 
+    /** Ouvre l'écran de chargement dès l'appui sur Lecture. */
+    @JavascriptInterface fun playerPrepare(json: String): Boolean {
+        OnyxApp.main.post { activity.play(json) }
+        return true
+    }
+
+    /** Avancement réel envoyé par l'interface (sources, vérification). */
+    @JavascriptInterface fun playerProgress(json: String) {
+        OnyxApp.main.post { try { PlayerActivity.current?.jsProgress(org.json.JSONObject(json)) } catch (_: Exception) { } }
+    }
+
     @JavascriptInterface fun play(json: String): Boolean {
         OnyxApp.main.post { activity.play(json) }
         return true

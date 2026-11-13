@@ -396,7 +396,18 @@ object TorrentEngine {
             val size = ti.files().fileSize(e.fileIndex).toDouble()
             if (size > 0) done = e.handle!!.fileProgress()[e.fileIndex] / size
         } catch (_: Exception) { }
-        return o.put("state", "downloading").put("progress", done)
+        // part du début (8 Mo) et de la fin (4 Mo) du fichier déjà reçue : ce qu'il faut pour démarrer
+        var head = 0.0
+        if (ti != null) try {
+            val th = e.handle!!
+            val fs = ti.files(); val pl = ti.pieceLength().toLong()
+            val fStart = fs.fileOffset(e.fileIndex); val fSize = fs.fileSize(e.fileIndex)
+            val ps = ArrayList<Int>()
+            for (p in (fStart / pl).toInt()..((fStart + minOf(fSize, 8L * 1024 * 1024)) / pl).toInt()) ps.add(p)
+            for (p in ((fStart + maxOf(0, fSize - 4L * 1024 * 1024)) / pl).toInt()..((fStart + fSize - 1) / pl).toInt()) if (p !in ps) ps.add(p)
+            head = ps.count { th.havePiece(it) }.toDouble() / maxOf(1, ps.size)
+        } catch (_: Exception) { }
+        return o.put("state", "downloading").put("progress", done).put("head", head)
     }
 
     /** État de plusieurs torrents d'un coup (pour choisir le meilleur torrent vivant). */

@@ -8,7 +8,6 @@
     { id: 'home', label: 'Accueil', icon: 'home' },
     { id: 'movies', label: 'Films', icon: 'movie', view: 'catalog', params: { type: 'movie' } },
     { id: 'series', label: 'Séries', icon: 'tv', view: 'catalog', params: { type: 'series' } },
-    { id: 'categories', label: 'Catégories', icon: 'grid' },
     { id: 'library', label: 'Ma liste', icon: 'list' },
     { id: 'addons', label: 'Addons', icon: 'addons' },
     { id: 'connections', label: 'Connexions', icon: 'phone' },
@@ -67,7 +66,7 @@
     v.el.classList.add('view');
     Onyx.$('#view').appendChild(v.el);
     app.stack.push(v);
-    requestAnimationFrame(function () { v.el.classList.add('active', 'enter'); setTimeout(function () { v.el.classList.remove('enter'); }, 450); });
+    requestAnimationFrame(function () { v.el.classList.add('active', 'enter'); setTimeout(function () { v.el.classList.remove('enter'); }, 1100); });
     v.el.classList.add('active');
     if (v.onShow) v.onShow();
     if (!opts.keepSidebar) focusView(v);

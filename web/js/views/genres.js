@@ -3,24 +3,56 @@
   'use strict';
   var Onyx = window.Onyx, h = Onyx.h;
 
-  /* Grille de vignettes colorées */
+  /* Carte de catégorie : verre sombre + icône 3D en métal poli.
+     Elle tourne quand la carte est sélectionnée et s'arrête quand on la quitte. */
+  Onyx.genreCard = function (g, onOpen) {
+    var still = h('img.g3d-still', { alt: '' });
+    var box = h('div.g3d-box', [h('span.g3d-flat', { html: Onyx.genreIcon(g.id) }), still]);
+    var card = h('button.genre-card.f', { type: 'button' }, [
+      h('div.genre-card-bg'), box, h('span.genre-card-label', { text: g.label }), h('i.genre-card-shine')
+    ]);
+    card.style.setProperty('--gc', g.color);
+    card._genre = g;
+    card.addEventListener('click', function () { (onOpen || function () { Onyx.app.go('genre', { genre: g.id }); })(g); });
+    var G = Onyx.Genre3D;
+    if (G && G.supported) {
+      var px = function () { return Math.round(Math.max(box.clientWidth, 96) * Math.min(2, window.devicePixelRatio || 1)); };
+      card.addEventListener('focus', function () { G.attach(box, g.id, g.color, px()); });
+      card.addEventListener('unfocus', function () { G.detach(); });
+      card._loadStill = function () {
+        var src = G.thumb(g.id, g.color, px());
+        if (src) { still.onload = function () { box.classList.add('ready'); }; still.src = src; }
+      };
+    }
+    return card;
+  };
+
+  /* Les images 3D apparaissent une à une, sans bloquer l'interface */
+  function loadStills(holder, cards) {
+    var i = 0;
+    (function next() {
+      if (i >= cards.length) return;
+      if (!holder.isConnected || !holder.offsetParent) { setTimeout(next, 250); return; }
+      var c = cards[i++];
+      if (c._loadStill) c._loadStill();
+      setTimeout(next, 30);
+    })();
+  }
+
+  /* Grille de catégories (recherche) */
   Onyx.genreGrid = function () {
     var grid = h('div.genre-grid', { 'data-remember': '' });
-    Onyx.Collections.GENRES.forEach(function (g) {
-      var t = h('button.genre-tile.f', { type: 'button', style: { background: 'linear-gradient(135deg, ' + g.color + ' 0%, rgba(0,0,0,.55) 140%)' } }, [h('span', { text: g.label })]);
-      t.addEventListener('click', function () { Onyx.app.go('genre', { genre: g.id }); });
-      grid.appendChild(t);
-    });
+    var cards = Onyx.Collections.GENRES.map(function (g) { var c = Onyx.genreCard(g); grid.appendChild(c); return c; });
+    loadStills(grid, cards);
     return grid;
   };
 
-  Onyx.views.categories = function () {
-    var track = h('div.track-v', { 'data-vmode': 'visible' }, [Onyx.genreGrid()]);
-    var el = h('div.view.categories', [
-      h('header.page-head', [h('h1', { text: 'Catégories' }), h('p.page-sub', { text: 'Films et séries par genre.' })]),
-      h('div.list-viewport.cat-vp', [track])
-    ]);
-    return { el: el, onShow: function () { Onyx.backdrop.set(null, 'plain'); } };
+  /* Ligne compacte de catégories pour l'accueil */
+  Onyx.genreRow = function () {
+    var row = Onyx.row('Catégories', { cls: 'genre-row' });
+    var cards = Onyx.Collections.GENRES.map(function (g) { var c = Onyx.genreCard(g); row.track.appendChild(c); return c; });
+    loadStills(row, cards);
+    return row;
   };
 
   Onyx.views.genre = function (params) {

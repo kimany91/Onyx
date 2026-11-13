@@ -278,3 +278,119 @@
     return h('div.empty', [h('div.empty-gem', { html: Onyx.gemSvg('gem-empty') }), h('h2', { text: title }), text ? h('p', { text: text }) : null, actions ? h('div.empty-actions', actions) : null]);
   };
 })();
+
+/* ---------- Écran de chargement cinématique (avancement réel) ---------- */
+(function () {
+  'use strict';
+  var Onyx = window.Onyx, h = Onyx.h;
+  var STEPS = ['Sources', 'Vérification', 'Connexion', 'Mise en mémoire'];
+
+  /* Images « cinéma » du titre : image de l'épisode, autres épisodes de la saison, fond, affiche */
+  Onyx.cinematicImages = function (meta, video) {
+    var out = [], id = String(meta.id || '').split(':')[0];
+    if (video && video.thumbnail) out.push(video.thumbnail);
+    if (/^tt\d+/.test(id)) out.push('https://images.metahub.space/background/large/' + id + '/img');
+    if (meta.background) out.push(meta.background);
+    var vids = (meta.videos || []).filter(function (v) { return v.thumbnail && (!video || v.season === video.season) && (!video || v.id !== video.id); });
+    // quelques images d'épisodes autour de celui-ci
+    var at = video ? (meta.videos || []).findIndex(function (v) { return v.id === video.id; }) : 0;
+    vids.sort(function (a, b) { return Math.abs((meta.videos || []).indexOf(a) - at) - Math.abs((meta.videos || []).indexOf(b) - at); });
+    vids.slice(0, 5).forEach(function (v) { out.push(v.thumbnail); });
+    if (/^tt\d+/.test(id)) out.push('https://images.metahub.space/background/medium/' + id + '/img');
+    if (meta.poster) out.push(meta.poster);
+    var seen = {};
+    return out.filter(function (u) { if (!u || seen[u]) return false; seen[u] = 1; return true; });
+  };
+
+  function bridge() {
+    if (window.OnyxNative && typeof window.OnyxNative.playerPrepare === 'function' && Onyx.native && Onyx.native.isAndroid()) return window.OnyxNative;
+    if (window.OnyxPhone && typeof window.OnyxPhone.playerPrepare === 'function') return window.OnyxPhone;
+    return null;
+  }
+
+  /* opts : {meta, video, label (S1:E2 · titre), videoId}
+     api.stage(étape 0-3, texte, détail, % global) · api.handoff() quand la vidéo est lancée
+     api.close(raison) pour abandonner · api.cancelled si l'utilisateur a fermé */
+  Onyx.loader = function (opts) {
+    var meta = opts.meta || {}, nb = bridge();
+    var api = { cancelled: false, native: !!nb };
+    var images = Onyx.cinematicImages(meta, opts.video);
+    var logo = Onyx.logoOf ? Onyx.logoOf(meta) : (meta.logo || '');
+    var last = { st: -1, pct: 0 };
+
+    function onPlayer(e) {
+      var d = e.detail; try { d = JSON.parse(d); } catch (x) { }
+      if (d && d.closed && d.cancelled && (!d.videoId || d.videoId === opts.videoId)) { api.cancelled = true; cleanup(); }
+    }
+    function cleanup() { window.removeEventListener('onyx-player', onPlayer); }
+
+    if (nb) {
+      window.addEventListener('onyx-player', onPlayer);
+      nb.playerPrepare(JSON.stringify({ prepare: true, title: meta.name || '', subtitle: opts.label || '', logo: logo || '', images: images, videoId: opts.videoId || '' }));
+      api.stage = function (st, label, detail, pct) {
+        if (api.cancelled) return;
+        if (st < last.st || pct < last.pct) return;
+        last = { st: st, pct: pct };
+        nb.playerProgress(JSON.stringify({ stage: st, label: label, detail: detail || '', pct: pct }));
+      };
+      api.status = function (t) { api.stage(Math.max(0, last.st), '', t, last.pct); };
+      api.handoff = function () { cleanup(); };
+      api.close = function (reason) { cleanup(); if (!api.cancelled && typeof nb.closePlayer === 'function') nb.closePlayer(reason || ''); };
+      return api;
+    }
+
+    /* Version web (PC / navigateur) */
+    var layers = [h('div.ld-img'), h('div.ld-img')];
+    var bar = h('i.ld-fill'), pctEl = h('span.ld-pct', { text: '0 %' }), stageEl = h('span.ld-stage', { text: 'Recherche des sources…' });
+    var detailEl = h('div.ld-detail'), steps = STEPS.map(function (s) { return h('span.ld-step', { text: s }); });
+    var titleBox = h('div.ld-title', [h('h1', { text: meta.name || '' })]);
+    if (logo) { var li = new Image(); li.onload = function () { if (li.naturalWidth > 10) { titleBox.innerHTML = ''; li.className = 'ld-logo'; titleBox.appendChild(li); } }; li.src = logo; }
+    var root = h('div#loader', [layers[0], layers[1], h('div.ld-shade'),
+      h('div.ld-info', [titleBox, opts.label ? h('div.ld-sub', { text: opts.label }) : null,
+        h('div.ld-head', [stageEl, pctEl]), h('div.ld-bar', [bar]), detailEl, h('div.ld-steps', steps)]),
+      h('button.ld-cancel.f', { type: 'button', html: Onyx.icons.back + '<span>Annuler</span>', onclick: function () { api.cancelled = true; api.close(); } })
+    ]);
+    document.body.appendChild(root);
+    requestAnimationFrame(function () { root.classList.add('in'); });
+    var shown = 0, slide = 0, timer = null;
+    function nextSlide() {
+      if (!images.length || !root.isConnected) return;
+      var url = images[slide % images.length], layer = layers[slide % 2];
+      slide++;
+      var im = new Image();
+      im.onload = function () {
+        layer.style.backgroundImage = 'url("' + url + '")';
+        layer.classList.remove('kb-a', 'kb-b'); void layer.offsetWidth;
+        layer.classList.add(slide % 2 ? 'kb-a' : 'kb-b', 'show');
+        layers[slide % 2].classList.remove('show');
+      };
+      im.onerror = function () { if (images.length > 1) setTimeout(nextSlide, 200); };
+      im.src = url;
+      if (images.length > 1) timer = setTimeout(nextSlide, 5200);
+    }
+    nextSlide();
+    api.stage = function (st, label, detail, pct) {
+      if (st < last.st) return;
+      if (st !== last.st) steps.forEach(function (s, i) { s.className = 'ld-step' + (i < st ? ' done' : i === st ? ' on' : ''); });
+      last.st = st;
+      if (label) stageEl.textContent = label;
+      if (detail !== undefined && detail !== null) detailEl.textContent = detail;
+      if (pct > shown) { shown = Math.min(100, pct); bar.style.width = shown + '%'; pctEl.textContent = Math.round(shown) + ' %'; }
+    };
+    api.status = function (t) { detailEl.textContent = t; };
+    api.handoff = function () { };
+    api.close = function () {
+      clearTimeout(timer);
+      if (!root.isConnected) return;
+      root.classList.add('out');
+      setTimeout(function () { root.remove(); }, 650);
+    };
+    api.finish = function () {
+      api.stage(3, 'C\'est parti', '', 100);
+      setTimeout(api.close, 300);
+    };
+    api.stage(0, 'Recherche des sources…', '', 0);
+    setTimeout(function () { Onyx.focus.set(Onyx.$('.ld-cancel', root)); }, 50);
+    return api;
+  };
+})();

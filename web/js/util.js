@@ -9,7 +9,10 @@
   /* Création d'éléments : h('div.card.f', {onclick: fn, data: {id: 1}}, [enfants]) */
   Onyx.h = function (spec, attrs, children) {
     var parts = spec.split('.');
-    var el = document.createElement(parts[0] || 'div');
+    var tag = parts[0] || 'div', id = null;
+    if (tag.indexOf('#') >= 0) { id = tag.slice(tag.indexOf('#') + 1); tag = tag.slice(0, tag.indexOf('#')) || 'div'; }
+    var el = document.createElement(tag);
+    if (id) el.id = id;
     if (parts.length > 1) el.className = parts.slice(1).join(' ');
     if (attrs && (Array.isArray(attrs) || typeof attrs === 'string' || attrs instanceof Node)) { children = attrs; attrs = null; }
     if (attrs) {

@@ -60,8 +60,11 @@ Le téléphone et la TV doivent être sur le **même Wi-Fi**. Depuis le téléph
 Accueil et navigation (TV et téléphone) :
 - rangées **Au cinéma** (films sortis ces 5 derniers mois, mise à jour automatique), **Les Classiques**,
   **Disney** et **Marvel**, en plus des catalogues de tes addons ;
-- **Catégories** comme sur Netflix (Action, Comédie, Horreur, Famille, Animation…) : dans le menu
-  *Catégories* et la *Recherche* sur la TV, en haut de l'onglet *Explorer* sur le téléphone ;
+- **Catégories** comme sur Netflix (Action, Comédie, Horreur, Famille, Animation…) en petites cartes
+  directement sur l'accueil (et dans la *Recherche* sur la TV, en haut de l'onglet *Explorer* sur le
+  téléphone). Chaque carte a une icône 3D en métal poli : sélectionnée avec la télécommande (ou doigt
+  posé dessus sur le téléphone), la carte s'illumine et l'icône tourne ; elle s'arrête quand on la quitte ;
+- animations fluides partout (transitions de pages, affiches qui apparaissent en cascade, boutons à ressort) ;
 - pendant la lecture, **flèche retour en haut à gauche** pour quitter le film.
 
 Lecture « comme Netflix » (TV, téléphone et PC) :
@@ -91,7 +94,8 @@ Lecture « comme Netflix » (TV, téléphone et PC) :
 - les addons lents (Comet met parfois 15-30 s à chercher) sont attendus au lieu d'afficher « aucune source » ;
 - trackers publics à jour (ngosang/trackerslist) chargés au démarrage, réseau DHT mémorisé d'un lancement
   à l'autre (les pairs sont trouvés en quelques secondes) ;
-- pendant la connexion, écran de chargement avec l'affiche, le titre et l'état (pairs, débit) au lieu d'un écran noir ;
+- **écran de chargement cinématique** : images du film ou de la série qui défilent, logo, et une barre
+  qui montre la vraie progression (sources, vérification, connexion aux pairs, mise en mémoire) jusqu'à la lecture ;
 - si une source n'a pas de pairs ou ne répond pas, Onyx passe automatiquement à la suivante ;
 - **taille des fichiers** : seuls le début et la fin sont nécessaires pour démarrer, donc un film de 10 Go
   démarre aussi vite qu'un de 1 Go. Par contre, regarder tout le film occupe sa taille sur l'appareil

@@ -74,12 +74,8 @@ class PlayerActivity : Activity() {
     private lateinit var menuBtn: TextView
     private val failTimeout = Runnable { finish() }
     private lateinit var status: TextView
-    private lateinit var loadingView: FrameLayout
-    private lateinit var loadingArt: ImageView
-    private lateinit var loadingTitle: TextView
-    private lateinit var loadingSub: TextView
-    private lateinit var loadingText: TextView
-    private var artUrl: String? = null
+    private lateinit var loading: LoadingScreen
+    private var preparing = false
     private var torrentHash: String? = null
     private var loadStart = 0L
     private var everReady = false
@@ -103,16 +99,25 @@ class PlayerActivity : Activity() {
                         else -> "$peers pairs · " + fmtSpeed(speed) + " · " + (st.optDouble("progress") * 100).toInt() + " %"
                     }
                     showStatus(txt)
+                    if (!everReady) {
+                        val buf = bufferFraction(p)
+                        if (st.optString("state") == "downloading") loading.setStage(3, "Mise en mémoire", null, 60f + st.optDouble("head").toFloat() * 30f + buf * 10f)
+                        else loading.setStage(2, "Connexion aux pairs", null, 45f + minOf(peers, 10) * 1.2f)
+                    }
                     // les sources sont vérifiées avant la lecture : si celle-ci reste muette, on passe vite à la suivante
                     if (!everReady && ((peers == 0 && seeds <= 0 && secs > 30) || secs > 120 || st.optString("state") == "error")) {
                         fail(if (peers == 0) "aucun pair pour ce torrent" else "torrent trop lent"); return
                     }
                 } else {
-                    showStatus(if (everReady) "Chargement…" else "Connexion à la source…")
+                    if (!everReady) {
+                        if (p.bufferedPosition > 0) loading.setStage(3, "Mise en mémoire", "Réception de la vidéo…", 60f + bufferFraction(p) * 40f)
+                        else loading.setStage(2, "Connexion à la source", "Connexion au serveur…", 50f)
+                    }
+                    showStatus(if (everReady) "Chargement…" else null)
                     if (!everReady && secs > 35) { fail("la source ne répond pas"); return }
                 }
             } else showStatus(null)
-            main.postDelayed(this, 1000)
+            main.postDelayed(this, 400)
         }
     }
     private val ticker = object : Runnable {
@@ -219,26 +224,9 @@ class PlayerActivity : Activity() {
             topMargin = dp(110f)
         })
 
-        // écran de chargement (affiche + titre + état) : jamais d'écran noir pendant la connexion
-        loadingView = FrameLayout(this).apply { setBackgroundColor(Color.BLACK); isClickable = false }
-        loadingArt = ImageView(this).apply { scaleType = ImageView.ScaleType.CENTER_CROP; alpha = 0f }
-        loadingView.addView(loadingArt, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        loadingView.addView(View(this).apply {
-            background = GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP, intArrayOf(0xF2000000.toInt(), 0xB3000000.toInt(), 0x66000000))
-        }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
-        loadingTitle = TextView(this).apply { setTextColor(Color.WHITE); textSize = 30f; typeface = Typeface.DEFAULT_BOLD; gravity = Gravity.CENTER; maxLines = 2 }
-        loadingSub = TextView(this).apply { setTextColor(0xFFC4C4CC.toInt()); textSize = 17f; gravity = Gravity.CENTER; maxLines = 1 }
-        val spin = ProgressBar(this).apply { isIndeterminate = true; indeterminateTintList = android.content.res.ColorStateList.valueOf(Color.WHITE) }
-        loadingText = TextView(this).apply { setTextColor(0xFFDDDDE2.toInt()); textSize = 15f; gravity = Gravity.CENTER; text = "Connexion à la source…" }
-        col.addView(loadingTitle)
-        col.addView(loadingSub)
-        col.addView(spin, LinearLayout.LayoutParams(dp(44f), dp(44f)).apply { topMargin = dp(28f) })
-        col.addView(loadingText, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(16f) })
-        loadingView.addView(col, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER).apply {
-            leftMargin = dp(48f); rightMargin = dp(48f)
-        })
-        root.addView(loadingView, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        // écran de chargement cinématique (images du titre + vraie progression) : jamais d'écran noir
+        loading = LoadingScreen(this)
+        root.addView(loading.view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
 
         osd = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 18f; typeface = Typeface.DEFAULT_BOLD
@@ -255,14 +243,22 @@ class PlayerActivity : Activity() {
     private fun load(intent: Intent) {
         val o = try { JSONObject(intent.getStringExtra("json") ?: "{}") } catch (_: Exception) { JSONObject() }
         val url = o.optString("url")
+        val imgs = ArrayList<String>()
+        o.optJSONArray("images")?.let { a -> for (i in 0 until a.length()) imgs.add(a.optString(i)) }
+        if (imgs.isEmpty()) listOf(o.optString("background"), o.optString("poster")).filter { it.isNotEmpty() }.forEach { imgs.add(it) }
+        loading.setMedia(o.optString("title"), o.optString("subtitle"), o.optString("logo"), imgs)
+        if (o.optBoolean("prepare")) {
+            // l'écran s'ouvre dès l'appui sur Lecture ; l'interface envoie l'avancement réel (sources, vérification)
+            preparing = true
+            videoId = o.optString("videoId")
+            loading.show()
+            return
+        }
         if (url.isEmpty()) { finish(); return }
         videoId = o.optString("videoId")
-        loadingTitle.text = o.optString("title")
-        loadingSub.text = o.optString("subtitle")
-        loadingSub.visibility = if (o.optString("subtitle").isEmpty()) View.GONE else View.VISIBLE
-        loadingText.text = "Connexion à la source…"
-        loadingView.animate().cancel(); loadingView.alpha = 1f; loadingView.visibility = View.VISIBLE
-        loadArt(o.optString("background").ifEmpty { o.optString("poster") })
+        if (!loading.visible) loading.show()
+        loading.rewind(2, 45f, "Connexion à la source…")
+        preparing = false
         menu = o.optJSONObject("menu")
         deviceLang = o.optString("deviceLang", "fr")
         menuBtn.visibility = if (menu != null) View.VISIBLE else View.GONE
@@ -337,7 +333,7 @@ class PlayerActivity : Activity() {
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     everReady = true; showStatus(null)
-                    loadingView.animate().alpha(0f).setDuration(400).withEndAction { loadingView.visibility = View.GONE }.start()
+                    loading.hide()
                 }
                 if (state == Player.STATE_ENDED) { ended = true; finish() }
             }
@@ -474,6 +470,16 @@ class PlayerActivity : Activity() {
 
     fun message(text: String) { showOsd(text, 3500) }
 
+    /** Part du tampon de démarrage déjà rempli (ExoPlayer démarre à ~1,5 s de vidéo). */
+    private fun bufferFraction(p: ExoPlayer): Float =
+        ((p.bufferedPosition - p.currentPosition).coerceAtLeast(0) / 1500f).coerceIn(0f, 1f)
+
+    /** Avancement envoyé par l'interface pendant la recherche et la vérification des sources. */
+    fun jsProgress(o: JSONObject) {
+        if (!preparing && player != null) return
+        loading.setStage(o.optInt("stage"), o.optString("label"), o.optString("detail").ifEmpty { null }, o.optDouble("pct").toFloat())
+    }
+
     private fun fmtSpeed(b: Int): String = when {
         b >= 1024 * 1024 -> String.format("%.1f Mo/s", b / 1048576.0)
         b >= 1024 -> (b / 1024).toString() + " ko/s"
@@ -482,28 +488,13 @@ class PlayerActivity : Activity() {
 
     private fun showStatus(t: String?) {
         // avant la première image : le texte va sur l'écran de chargement
-        if (!everReady && loadingView.visibility == View.VISIBLE) {
+        if (!everReady && loading.visible) {
             status.visibility = View.GONE
-            if (t != null) loadingText.text = t
+            if (t != null) loading.setDetail(t)
             return
         }
         if (t == null) { status.visibility = View.GONE; return }
         status.text = t; status.visibility = View.VISIBLE
-    }
-
-    /** Charge l'affiche du titre en fond de l'écran de chargement. */
-    private fun loadArt(url: String) {
-        if (url.isEmpty() || url == artUrl) { if (url.isEmpty()) loadingArt.alpha = 0f; return }
-        artUrl = url
-        loadingArt.alpha = 0f
-        Thread {
-            try {
-                val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
-                c.connectTimeout = 6000; c.readTimeout = 8000; c.instanceFollowRedirects = true
-                val bmp = c.inputStream.use { BitmapFactory.decodeStream(it) }
-                if (bmp != null) main.post { if (artUrl == url) { loadingArt.setImageBitmap(bmp); loadingArt.animate().alpha(0.55f).setDuration(500).start() } }
-            } catch (_: Exception) { }
-        }.start()
     }
 
     /** Source illisible : l'interface essaie automatiquement la suivante, au même endroit. */
@@ -637,6 +628,11 @@ class PlayerActivity : Activity() {
     }
 
     private fun close() {
+        if (player == null && !reported) {
+            // fermé pendant la préparation : l'interface arrête la recherche
+            reported = true
+            events?.invoke("onyx-player", JSONObject().put("videoId", videoId).put("closed", true).put("cancelled", true).toString())
+        }
         main.removeCallbacks(failTimeout)
         main.removeCallbacks(watchdog)
         main.removeCallbacks(ticker)
@@ -648,7 +644,7 @@ class PlayerActivity : Activity() {
     }
 
     override fun onDestroy() {
-        if (player != null) close()
+        if (player != null || !reported) close()
         super.onDestroy()
     }
 }

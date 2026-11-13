@@ -149,6 +149,12 @@ class MainActivity : Activity() {
 
         @JavascriptInterface fun scan() { runOnUiThread { this@MainActivity.scan() } }
 
+        @JavascriptInterface fun playerPrepare(json: String): Boolean = play(json)
+
+        @JavascriptInterface fun playerProgress(json: String) {
+            runOnUiThread { try { PlayerActivity.current?.jsProgress(JSONObject(json)) } catch (_: Exception) { } }
+        }
+
         @JavascriptInterface fun play(json: String): Boolean {
             runOnUiThread { startActivity(Intent(this@MainActivity, PlayerActivity::class.java).putExtra("json", json)) }
             return true
