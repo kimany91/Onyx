@@ -101,7 +101,7 @@ object TorrentEngine {
         dir.mkdirs()
         // pas de file d'attente : tous les torrents (sondes, préchargements, lecture) tournent en même temps
         val sp = SettingsPack()
-            .connectionsLimit(300)
+            .connectionsLimit(400)
             .activeDownloads(60)
             .activeLimit(80)
             .maxPeerlistSize(3000)
@@ -110,8 +110,29 @@ object TorrentEngine {
         sp.setMaxMetadataSize(16 * 1024 * 1024)
         sp.setString(settings_pack.string_types.dht_bootstrap_nodes.swigValue(),
             "dht.libtorrent.org:25401,router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881,dht.aelitis.com:6881")
-        sp.setInteger(settings_pack.int_types.connection_speed.swigValue(), 80)
-        sp.setInteger(settings_pack.int_types.torrent_connect_boost.swigValue(), 80)
+        // profil « streaming rapide »
+        sp.setInteger(settings_pack.int_types.connection_speed.swigValue(), 150)
+        sp.setInteger(settings_pack.int_types.torrent_connect_boost.swigValue(), 100)
+        sp.setBoolean(settings_pack.bool_types.smooth_connects.swigValue(), false)
+        // tous les trackers interrogés en même temps (par défaut : un seul à la fois)
+        sp.setBoolean(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true)
+        sp.setBoolean(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true)
+        // plus de demandes en parallèle par pair → la connexion est mieux remplie
+        sp.setInteger(settings_pack.int_types.max_out_request_queue.swigValue(), 1500)
+        sp.setInteger(settings_pack.int_types.request_queue_time.swigValue(), 5)
+        sp.setInteger(settings_pack.int_types.whole_pieces_threshold.swigValue(), 5)
+        sp.setBoolean(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true)
+        sp.setBoolean(settings_pack.bool_types.strict_end_game_mode.swigValue(), false)
+        // un morceau urgent qui traîne est redemandé à d'autres pairs plus vite
+        sp.setInteger(settings_pack.int_types.piece_timeout.swigValue(), 8)
+        // les pairs lents ou morts sont remplacés plus souvent
+        sp.setInteger(settings_pack.int_types.peer_turnover.swigValue(), 10)
+        sp.setInteger(settings_pack.int_types.peer_turnover_cutoff.swigValue(), 90)
+        sp.setInteger(settings_pack.int_types.peer_turnover_interval.swigValue(), 60)
+        sp.setInteger(settings_pack.int_types.max_failcount.swigValue(), 2)
+        sp.setInteger(settings_pack.int_types.inactivity_timeout.swigValue(), 120)
+        // on partage en retour avec plus de pairs → ils nous envoient plus de données
+        sp.setInteger(settings_pack.int_types.unchoke_slots_limit.swigValue(), 20)
         sp.setInteger(settings_pack.int_types.peer_connect_timeout.swigValue(), 7)
         sp.setInteger(settings_pack.int_types.request_timeout.swigValue(), 10)
         sp.setInteger(settings_pack.int_types.min_reconnect_time.swigValue(), 2)
@@ -285,6 +306,8 @@ object TorrentEngine {
                         // hors de la file d'attente de libtorrent : le torrent démarre tout de suite
                         th.unsetFlags(TorrentFlags.AUTO_MANAGED)
                         th.resume()
+                        // recherche de pairs immédiate (trackers + DHT)
+                        try { th.forceReannounce(); th.forceDHTAnnounce() } catch (_: Exception) { }
                         e.early = th
                     }
                 }
@@ -301,6 +324,14 @@ object TorrentEngine {
             if (idx < 0) throw IOException("aucune vidéo dans ce torrent")
             e.info = ti; e.fileIndex = idx; e.handle = th
             applyMode(e)
+            // peu de pairs après quelques secondes → nouvelle recherche
+            val h0 = th
+            Thread {
+                try {
+                    Thread.sleep(8000)
+                    if (!e.cancelled && h0.isValid && h0.status().numPeers() < 5) { h0.forceReannounce(); h0.forceDHTAnnounce() }
+                } catch (_: Exception) { }
+            }.apply { isDaemon = true; start() }
         } catch (ex: Exception) {
             e.error = ex.message ?: "erreur torrent"
         } finally {
@@ -437,8 +468,8 @@ object TorrentEngine {
             if (pos > end) return -1
             val th = e.handle ?: throw IOException("torrent fermé")
             val piece = ((fileStart + pos) / pl).toInt()
-            // fenêtre glissante de 24 Mo devant la lecture, échéances rafraîchies à chaque morceau
-            if (piece >= lastWindowPiece + step || piece < lastWindowPiece) { lastWindowPiece = piece; window(e, pos, 24L * 1024 * 1024, 0) }
+            // fenêtre glissante de 48 Mo devant la lecture (réserve contre les coupures), échéances rafraîchies à chaque morceau
+            if (piece >= lastWindowPiece + step || piece < lastWindowPiece) { lastWindowPiece = piece; window(e, pos, 48L * 1024 * 1024, 0) }
             while (!th.havePiece(piece)) {
                 if (closed || e.cancelled || !th.isValid) throw IOException("lecture interrompue")
                 Thread.sleep(30)

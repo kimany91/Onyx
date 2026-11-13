@@ -447,12 +447,13 @@
         var dht = 0; hashes.forEach(function (h) { dht = Math.max(dht, (hs[h] && hs[h].dht) || 0); });
         if (onStatus) onStatus('Vérification des sources… ' + ok.length + '/' + hashes.length + ' actives' + (dht ? '' : ' · connexion au réseau'));
         // favori vivant → on y va ; sinon on laisse quelques secondes aux autres
-        var done = (ok.length && alive(hs[hashes[0]]) && el > 600) || (ok.length && el > 2500) || el > 14000;
+        // on laisse ~1,5 s pour comparer le nombre de pairs (plus de pairs = téléchargement plus rapide)
+        var done = (ok.length && alive(hs[hashes[0]]) && el > 1500) || (ok.length && el > 2500) || el > 14000;
         if (!done) return setTimeout(poll, 500);
         var bonus = {};
         hashes.forEach(function (h) {
           var x = hs[h] || {};
-          bonus[h] = alive(x) ? Math.min(40, Math.log((x.seeds || 0) + (x.peers || 0) + 1) / Math.LN2 * 6) : -300;
+          bonus[h] = alive(x) ? Math.min(60, Math.log((x.seeds || 0) + (x.peers || 0) + 1) / Math.LN2 * 7) : -300;
         });
         var out = ranked.map(function (x) {
           var k = torrentKey(x.stream);
