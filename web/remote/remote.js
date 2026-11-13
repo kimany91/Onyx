@@ -33,9 +33,31 @@
   document.body.classList.toggle('local', LOCAL);
 
   /* ---------- API TV ---------- */
+  /* Requêtes vers la TV : par l'app elle-même quand c'est possible (le WebView d'Android
+     bloque les appels d'une page vers un appareil du réseau local), sinon par fetch. */
+  var httpWait = {}, httpSeq = 0;
+  window.addEventListener('onyx-http', function (e) {
+    var d = e.detail; try { d = JSON.parse(d); } catch (x) { }
+    var w = d && httpWait[d.id];
+    if (!w) return;
+    delete httpWait[d.id];
+    clearTimeout(w.t);
+    if (!d.status) return w.reject(new Error(d.error || 'réseau'));
+    w.resolve({ status: d.status, ok: d.status >= 200 && d.status < 300, json: function () { try { return Promise.resolve(JSON.parse(d.body || 'null')); } catch (x) { return Promise.reject(x); } } });
+  });
+  function request(url, opts) {
+    if (phone && typeof phone.http === 'function') {
+      return new Promise(function (resolve, reject) {
+        var id = 'h' + (++httpSeq);
+        httpWait[id] = { resolve: resolve, reject: reject, t: setTimeout(function () { delete httpWait[id]; reject(new Error('délai dépassé')); }, 12000) };
+        phone.http(id, opts.method || 'GET', url, JSON.stringify(opts.headers || {}), opts.body || null);
+      });
+    }
+    return fetch(url, opts);
+  }
   function api(path, body) {
     if (!tv) return Promise.reject(new Error('notv'));
-    return fetch(tv.base + path, {
+    return request(tv.base + path, {
       method: body ? 'POST' : 'GET',
       headers: { 'Content-Type': 'application/json', 'X-Onyx-Token': tv.token, 'X-Onyx-Device': device },
       body: body ? JSON.stringify(body) : undefined
@@ -97,9 +119,18 @@
     var d = e.detail; try { d = JSON.parse(d); } catch (x) { }
     tv = parseTv(d && d.url);
     state = null;
+    if (!tv) { toast('QR code non reconnu : scanne celui de la TV (Connexions)'); return; }
+    toast('Connexion à la TV…');
     connectTv();
     if (currentTab === 'more') renderMore();
-    toast('TV connectée ✓');
+    // on ne dit « connectée » que si la TV répond vraiment
+    api('/api/state').then(function () {
+      toast('TV connectée ✓');
+      api('/api/cmd', { action: 'hello', device: device }).catch(function () { });
+    }).catch(function (err) {
+      if (err.message === 'unauthorized') toast('Code expiré : rescanne le QR code de la TV');
+      else toast('TV introuvable (' + tv.base.replace(/^https?:\/\//, '') + ') : même Wi-Fi ?', 6000);
+    });
   });
 
   /* ---------- Lecture (choix automatique du fichier, comme Netflix) ---------- */
@@ -810,10 +841,10 @@
 
   /* ---------- Toast ---------- */
   var toastT;
-  function toast(t) {
+  function toast(t, ms) {
     var el = Onyx.$('#toast');
     el.textContent = t; el.classList.add('show');
-    clearTimeout(toastT); toastT = setTimeout(function () { el.classList.remove('show'); }, 2200);
+    clearTimeout(toastT); toastT = setTimeout(function () { el.classList.remove('show'); }, ms || 2200);
   }
 
   /* Sons de l'interface (téléphone) : onglets, boutons, cartes */

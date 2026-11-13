@@ -130,7 +130,7 @@ class MainActivity : Activity() {
         if (u.scheme != "http" && u.scheme != "https") return false
         if (u.getQueryParameter("token").isNullOrEmpty() || u.path?.contains("remote") != true) return false
         prefs.edit().putString("tv", u.toString()).apply()
-        Toast.makeText(this, "TV connectée ✓", Toast.LENGTH_SHORT).show()
+        // « connectée » n'est affiché qu'une fois que la TV a vraiment répondu (côté interface)
         emit("onyx-tv", JSONObject().put("url", u.toString()).toString())
         return true
     }
@@ -153,6 +153,38 @@ class MainActivity : Activity() {
         @JavascriptInterface fun tvUrl(): String? = prefs.getString("tv", null)
 
         @JavascriptInterface fun forgetTv() { prefs.edit().remove("tv").apply() }
+
+        /**
+         * Requête vers la TV faite par l'app elle-même (et non par la page web) :
+         * les navigateurs récents bloquent les appels d'une page vers un appareil
+         * du réseau local ; ici aucune restriction. Réponse via l'événement « onyx-http ».
+         */
+        @JavascriptInterface fun http(id: String, method: String, url: String, headers: String?, body: String?) {
+            Thread {
+                val out = JSONObject().put("id", id)
+                try {
+                    val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                    c.requestMethod = if (method == "POST") "POST" else "GET"
+                    c.connectTimeout = 4000; c.readTimeout = 10000
+                    c.useCaches = false
+                    try {
+                        val h = JSONObject(headers ?: "{}")
+                        h.keys().forEach { k -> c.setRequestProperty(k, h.optString(k)) }
+                    } catch (_: Exception) { }
+                    if (c.requestMethod == "POST" && body != null) {
+                        c.doOutput = true
+                        c.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+                    }
+                    val code = c.responseCode
+                    val text = (if (code >= 400) c.errorStream else c.inputStream)?.bufferedReader(Charsets.UTF_8)?.use { it.readText() } ?: ""
+                    out.put("status", code).put("body", text)
+                    c.disconnect()
+                } catch (e: Exception) {
+                    out.put("status", 0).put("error", e.javaClass.simpleName + ": " + (e.message ?: ""))
+                }
+                emit("onyx-http", out.toString())
+            }.apply { isDaemon = true; start() }
+        }
 
         @JavascriptInterface fun scan() { runOnUiThread { this@MainActivity.scan() } }
 

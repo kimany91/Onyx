@@ -38,11 +38,18 @@ class RemoteServer(private val ctx: Context, port: Int) : NanoHTTPD("0.0.0.0", p
     fun resetToken(): String { devices.clear(); return newToken() }
 
     fun info(): JSONObject {
-        val ip = lanIp()
+        val ip = activeIp() ?: lanIp()
         val url = "http://$ip:$listeningPort"
         return JSONObject().put("ip", ip).put("port", listeningPort).put("url", url)
             .put("token", token).put("pairUrl", "$url/remote/?token=$token")
     }
+
+    /** Adresse IPv4 du réseau réellement utilisé (Wi-Fi ou Ethernet) selon Android. */
+    private fun activeIp(): String? = try {
+        val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        val lp = cm.getLinkProperties(cm.activeNetwork)
+        lp?.linkAddresses?.map { it.address }?.firstOrNull { it is Inet4Address && !it.isLoopbackAddress }?.hostAddress
+    } catch (_: Exception) { null }
 
     fun devicesJson(): String {
         val a = JSONArray()
@@ -54,6 +61,8 @@ class RemoteServer(private val ctx: Context, port: Int) : NanoHTTPD("0.0.0.0", p
         r.addHeader("Access-Control-Allow-Origin", "*")
         r.addHeader("Access-Control-Allow-Headers", "Content-Type, X-Onyx-Token, X-Onyx-Device")
         r.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        // navigateurs récents : autorise explicitement les appels vers cet appareil du réseau local
+        r.addHeader("Access-Control-Allow-Private-Network", "true")
         r.addHeader("Cache-Control", "no-store")
         return r
     }
@@ -133,8 +142,9 @@ class RemoteServer(private val ctx: Context, port: Int) : NanoHTTPD("0.0.0.0", p
                     for (addr in ni.inetAddresses) {
                         if (addr !is Inet4Address || addr.isLoopbackAddress) continue
                         val ip = addr.hostAddress ?: continue
-                        val preferred = ni.name.startsWith("wlan") || ni.name.startsWith("eth")
-                        if (best == null || (preferred && addr.isSiteLocalAddress)) best = ip
+                        val preferred = (ni.name.startsWith("wlan") || ni.name.startsWith("eth")) && addr.isSiteLocalAddress
+                        if (preferred) return ip
+                        if (best == null && addr.isSiteLocalAddress) best = ip
                     }
                 }
             } catch (_: Exception) { }
