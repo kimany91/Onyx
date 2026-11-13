@@ -112,9 +112,15 @@
         h('div.catalog-vp', [list])
       ]));
       list.appendChild(Onyx.spinner());
-      S.addonCatalog(which).then(function (addons) {
+      var featuredP = which === 'official' ? S.featuredAddons() : Promise.resolve([]);
+      Promise.all([featuredP, S.addonCatalog(which).catch(function () { return []; })]).then(function (res) {
+        var featured = res[0], addons = res[1];
+        var urls = featured.map(function (f) { return f.transportUrl; });
+        addons = addons.filter(function (a) { return urls.indexOf(a.transportUrl) < 0; });
         list.innerHTML = '';
-        addons.forEach(function (a) {
+        if (featured.length) list.appendChild(h('h3.catalog-section', { text: 'Recommandés' }));
+        featured.concat(featured.length && addons.length ? [{ sep: true }] : [], addons).forEach(function (a) {
+          if (a.sep) { list.appendChild(h('h3.catalog-section', { text: 'Tous les addons' })); return; }
           var m = a.manifest || {};
           var installed = S.isInstalled(a.transportUrl);
           var b = Onyx.btn(installed ? 'Installé' : 'Installer', installed ? 'check' : 'plus', function () {
@@ -126,7 +132,7 @@
           }, installed ? 'ghost' : '');
           list.appendChild(h('div.addon-row.compact', { 'data-remember': '' }, [
             Onyx.addonLogo(m),
-            h('div.addon-info', [h('div.addon-name', [h('span', { text: m.name || a.transportUrl })]), h('div.addon-desc', { text: m.description || '' }), h('div.addon-tags', { text: [resLabel(m), typesLabel(m)].filter(Boolean).join('  —  ') })]),
+            h('div.addon-info', [h('div.addon-name', [h('span', { text: m.name || a.transportUrl })]), h('div.addon-desc', { text: a.note || m.description || '' }), h('div.addon-tags', { text: [resLabel(m), typesLabel(m)].filter(Boolean).join('  —  ') })]),
             h('div.addon-actions', [b])
           ]));
         });

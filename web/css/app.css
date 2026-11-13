@@ -708,3 +708,5 @@ body.playing #ambient { visibility: hidden; }
 .genre-card.picked::after { content: ''; position: absolute; left: 30%; right: 30%; bottom: .45rem; height: .2rem; border-radius: .1rem; background: var(--gc); box-shadow: 0 0 .8rem var(--gc); }
 .genre-card.picked .genre-card-bg { opacity: .18; }
 .row.genre-content { animation: riseIn .55s var(--out) both; }
+.catalog-section { font-size: 1.15rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 1.2rem 0 .6rem; }
+.catalog-section:first-child { margin-top: 0; }

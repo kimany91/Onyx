@@ -861,6 +861,20 @@
       h('p.hint', { text: 'Optionnel : sur la TV, ouvre Onyx › Connexions et scanne le QR code pour la piloter et y lancer des films.' }),
       h('button.btn.primary.wide', { text: 'Scanner le QR code de la TV', onclick: function () { phone.scan(); } })
     ]));
+    // Addons conseillés (installation en un geste)
+    var rec = h('div.rec-list');
+    box.appendChild(h('div.card-box', [h('h2', { text: 'Addons conseillés' }), rec]));
+    S.FEATURED.forEach(function (f) {
+      var name = /comet/.test(f.url) ? 'Comet' : /kitsu/.test(f.url) ? 'Anime Kitsu' : 'Watch Next';
+      var installed = S.isInstalled(f.url);
+      var b = h('button.btn' + (installed ? '' : '.primary'), { text: installed ? 'Installé' : 'Installer' });
+      b.addEventListener('click', function () {
+        if (S.isInstalled(f.url)) return;
+        toast('Installation…');
+        S.install(f.url).then(function (m) { toast('« ' + m.name + ' » installé'); renderMore(); renderHome(); }, function (er) { toast('Échec : ' + er.message); });
+      });
+      rec.appendChild(h('div.rec-item', [h('div.rec-text', [h('b', { text: name }), h('small', { text: f.note })]), b]));
+    });
     // Ajout
     var urlIn = h('input', { type: 'url', placeholder: 'https://…/manifest.json' });
     box.appendChild(h('div.card-box', [

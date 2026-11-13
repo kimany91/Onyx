@@ -246,6 +246,13 @@
       }
       var isSer = (m.videos || []).length > 0 && m.type !== 'movie';
       if (!params.autoplay) Onyx.player.prewarm(m, isSer ? targetEpisode(m) : null);
+      // suggestions (addons du type Watch Next) en bas de la fiche
+      S.recommendations(m.type, m.id).then(function (recs) {
+        if (!recs.length || !el.isConnected) return;
+        var row = Onyx.row('À voir ensuite', { cls: 'recs' });
+        recs.slice(0, 20).forEach(function (r) { row.track.appendChild(Onyx.card(r)); });
+        track.appendChild(row);
+      });
       if (params.autoplay) {
         var isSeries = (m.videos || []).length > 0 && m.type !== 'movie';
         Onyx.player.auto(m, isSeries ? targetEpisode(m) : null, {});

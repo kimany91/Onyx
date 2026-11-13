@@ -283,3 +283,9 @@ body.local .no-tv:not([style*="none"]) ~ .seek-row, body.local .no-tv:not([style
 .gcard.picked, .home-gcard.picked { border-color: rgba(255,255,255,.5); }
 .gcard.picked::after, .home-gcard.picked::after { content: ''; position: absolute; left: 32%; right: 32%; bottom: 5px; height: 3px; border-radius: 2px; background: var(--gc, #fff); box-shadow: 0 0 10px var(--gc, #fff); }
 .home-content { animation: tabIn .45s var(--out); }
+.rec-item { display: flex; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
+.rec-item:first-child { border-top: 0; padding-top: 4px; }
+.rec-text { flex: 1; min-width: 0; margin-right: 10px; }
+.rec-text b { display: block; font-size: 15px; }
+.rec-text small { display: block; color: var(--muted); font-size: 12px; margin-top: 2px; line-height: 1.35; }
+.rec-item .btn { height: 38px; padding: 0 14px; flex: none; }

@@ -82,6 +82,10 @@ Accueil et navigation (TV et téléphone) :
   Sons, ambiance et animation de lancement se désactivent dans *Paramètres › Application*.
 - pendant la lecture, **flèche retour en haut à gauche** pour quitter le film.
 
+Addons conseillés (en tête du catalogue sur la TV, dans « Plus » sur le téléphone) : **Comet** (sources torrent/debrid
+rapides ; pour tes réglages, colle ton lien Comet personnel), **Anime Kitsu** (animes) et **Watch Next** (rangée
+« À voir ensuite » sur chaque fiche ; ses liens ne sont jamais pris pour des vidéos).
+
 Lecture « comme Netflix » (TV, téléphone et PC) :
 - tu appuies sur **Lecture** ou sur un épisode : Onyx récupère les fichiers de tous tes addons et
   **choisit tout seul** celui qui correspond à ta langue et à ta qualité (pas de liste à trier) ;

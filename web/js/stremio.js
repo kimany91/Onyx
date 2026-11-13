@@ -213,7 +213,11 @@
     var list = S.streamAddons(type, id);
     return Promise.all(list.map(function (a) {
       return S.fetchJSON(S.base(a) + '/stream/' + encodeURIComponent(type) + '/' + encodeURIComponent(id) + '.json', { ttl: 10 * 60 * 1000, timeout: 45000 })
-        .then(function (j) { var r = { addon: a, streams: (j && j.streams) || [] }; if (onAddon) onAddon(r); return r; })
+        .then(function (j) {
+          var all = (j && j.streams) || [];
+          var r = { addon: a, streams: all.filter(function (st) { return !S.isDetailLink(st); }) };
+          if (onAddon) onAddon(r); return r;
+        })
         .catch(function (e) { var r = { addon: a, streams: [], error: e.message }; if (onAddon) onAddon(r); return r; });
     }));
   };
@@ -224,6 +228,47 @@
       return S.fetchJSON(S.base(a) + '/subtitles/' + encodeURIComponent(type) + '/' + encodeURIComponent(id) + extraPath(extra) + '.json', { timeout: 8000 })
         .then(function (j) { return (j && j.subtitles) || []; }).catch(function () { return []; });
     })).then(function (all) { return [].concat.apply([], all); });
+  };
+
+  /* Une « source » qui renvoie vers une autre fiche (ex. Watch Next) n'est pas une vidéo */
+  S.isDetailLink = function (st) { return !!(st && st.externalUrl && /^stremio:\/\/\/detail\//i.test(st.externalUrl)); };
+
+  /* Addons conseillés, en tête du catalogue */
+  S.FEATURED = [
+    { url: 'https://comet.elfhosted.com/manifest.json', note: 'Sources torrent et debrid très rapides. Pour tes réglages (debrid, langues), colle ton lien Comet personnel avec « Ajouter par URL ».' },
+    { url: 'https://anime-kitsu.strem.fun/manifest.json', note: 'Catalogues et fiches d\'animes (Kitsu).' },
+    { url: 'https://099757617587-watch-next.baby-beamup.club/manifest.json', note: 'Suggestions « À voir ensuite » sur la fiche de chaque film ou série.' }
+  ];
+  S.featuredAddons = function () {
+    return Promise.all(S.FEATURED.map(function (f) {
+      return S.fetchJSON(f.url, { ttl: 6 * 3600 * 1000, timeout: 12000 })
+        .then(function (m) { return m && m.id ? { transportUrl: f.url, manifest: m, note: f.note } : null; })
+        .catch(function () { return null; });
+    })).then(function (l) { return l.filter(Boolean); });
+  };
+
+  /* Recommandations (addons du type Watch Next) : [{ id, type, name, poster, description }] */
+  S.recommendations = function (type, id, videoId) {
+    var list = S.addons.filter(function (a) {
+      var m = a.manifest || {};
+      return S.supports(a, 'stream', type, id) && /watch[ .-]?next/i.test((m.id || '') + ' ' + (m.name || ''));
+    });
+    if (!list.length) return Promise.resolve([]);
+    var sid = type === 'series' ? (videoId || id + ':1:1') : id;
+    return Promise.all(list.map(function (a) {
+      return S.fetchJSON(S.base(a) + '/stream/' + encodeURIComponent(type) + '/' + encodeURIComponent(sid) + '.json', { ttl: 24 * 3600 * 1000, timeout: 15000 })
+        .then(function (j) { return (j && j.streams) || []; }).catch(function () { return []; });
+    })).then(function (all) {
+      var seen = {}, out = [];
+      [].concat.apply([], all).forEach(function (st) {
+        var m = /^stremio:\/\/\/detail\/([^\/]+)\/([^\/?#]+)/i.exec(st.externalUrl || '');
+        if (!m || seen[m[2]] || m[2] === id) return;
+        seen[m[2]] = 1;
+        var rid = decodeURIComponent(m[2]);
+        out.push({ id: rid, type: m[1], name: st.name || st.title || rid, poster: /^tt\d+/.test(rid) ? 'https://images.metahub.space/poster/small/' + rid + '/img' : null, description: '' });
+      });
+      return out;
+    });
   };
 
   S.addonCatalog = function (which) {
