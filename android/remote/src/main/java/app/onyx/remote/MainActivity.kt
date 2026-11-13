@@ -34,7 +34,6 @@ class MainActivity : Activity() {
 
     private lateinit var web: WebView
     private val prefs by lazy { getSharedPreferences("onyx", Context.MODE_PRIVATE) }
-    private var updateChecked = false
 
     companion object {
         const val SCAN = 42
@@ -74,6 +73,7 @@ class MainActivity : Activity() {
         // Lien direct (QR code scanné avec l'appareil photo puis « ouvrir avec Onyx »)
         intent?.data?.let { accept(it.toString()) }
         web.loadUrl(HOME)
+        Updater.startPeriodic(this, "onyx-remote.apk", BuildConfig.VERSION_CODE, ::onUpdate)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -85,12 +85,13 @@ class MainActivity : Activity() {
         super.onResume()
         PlayerActivity.events = { name, json -> emit(name, json) }
         Updater.resumePending(this)
-        if (!updateChecked) {
-            updateChecked = true
-            Updater.check(this, "onyx-remote.apk", BuildConfig.VERSION_CODE, false) { o ->
-                if (o.optString("status") == "available") Toast.makeText(this, "Mise à jour " + o.optString("version") + " en cours de téléchargement…", Toast.LENGTH_LONG).show()
-            }
-        }
+        // mise à jour automatique : au démarrage et à chaque retour dans l'app (au plus 1 fois par heure)
+        Updater.autoCheck(this, "onyx-remote.apk", BuildConfig.VERSION_CODE, 3600_000L, ::onUpdate)
+    }
+
+    private fun onUpdate(o: JSONObject) {
+        if (o.optString("status") == "available") Toast.makeText(this, "Mise à jour " + o.optString("version") + " en cours de téléchargement…", Toast.LENGTH_LONG).show()
+        emit("onyx-update", o.toString())
     }
 
     private fun emit(event: String, json: String) {

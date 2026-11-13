@@ -109,19 +109,24 @@ Onyx n'héberge aucun contenu : tout vient des addons que tu choisis d'installer
 
 ## 4. Mises à jour automatiques
 
-Au démarrage, l'app TV, l'app téléphone et la version Windows vérifient la dernière *Release* GitHub,
-téléchargent la nouvelle version et lancent l'installation (sur Android, il faut seulement confirmer
-« Installer » la première fois et autoriser Onyx à installer des applis).
+L'app TV et l'app téléphone vérifient s'il existe une nouvelle version **au démarrage, à chaque retour
+dans l'app (au plus une fois par heure) et toutes les 3 h** quand elles restent ouvertes. La nouvelle version
+est téléchargée puis installée automatiquement, et l'app se rouvre toute seule ensuite :
+- la **toute première fois**, Android demande d'autoriser Onyx à « installer des applis inconnues »
+  puis de confirmer « Mettre à jour » (règle d'Android, impossible à éviter) ;
+- ensuite, sur **Android 12 et plus**, les mises à jour s'installent **sans rien toucher** ; sur les versions
+  plus anciennes, il faut juste confirmer « Mettre à jour ».
 
-Deux réglages à faire une seule fois sur GitHub :
+Deux réglages à faire **une seule fois** sur GitHub pour que ça marche :
 
-1. **Clé de signature** : ajoute les secrets `ONYX_KEYSTORE_BASE64` et `ONYX_KEYSTORE_PASSWORD`
-   (*Settings › Secrets and variables › Actions › New repository secret*). Ils garantissent que chaque
-   nouvelle version est signée avec la même clé, condition pour qu'Android accepte la mise à jour.
-2. **Visibilité** : ⚠️ le dépôt est **privé**, or la TV ne peut pas lire les *Releases* d'un dépôt privé.
-Pour activer les mises à jour automatiques, rends le dépôt public
-(*Settings › General › Danger Zone › Change visibility*). Sinon, mets à jour en réinstallant l'APK
-par-dessus (tes réglages et addons sont conservés).
+1. **Clé de signature** : *Settings › Secrets and variables › Actions › New repository secret*, créer
+   `ONYX_KEYSTORE_PASSWORD` et `ONYX_KEYSTORE_BASE64` (valeurs fournies à part, à garder privées).
+   Sans elles, chaque version est signée avec une clé différente et Android refuse la mise à jour.
+2. **Visibilité** : *Settings › General › Danger Zone › Change visibility › Public*. Une TV ne peut pas
+   lire les *Releases* d'un dépôt privé. (Le dépôt ne contient aucun mot de passe.)
+
+Après ces deux réglages, réinstalle une dernière fois les APK à la main : toutes les versions
+suivantes arriveront toutes seules.
 
 ## 5. Version Windows (tester sur PC)
 

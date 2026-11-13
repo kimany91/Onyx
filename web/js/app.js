@@ -240,8 +240,7 @@
         splash.classList.add('out');
         setTimeout(function () { splash.remove(); }, 900);
         app.pushState();
-        // vérification des mises à jour
-        setTimeout(function () { Onyx.native.checkUpdate(false); }, 4000);
+        // (les mises à jour sont vérifiées automatiquement par l'app : démarrage, retour dans l'app, toutes les 3 h)
         // synchronisation silencieuse des addons du compte Stremio
         pullAccountProgress();
         pushProgress();

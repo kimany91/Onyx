@@ -105,7 +105,12 @@ object Updater {
         }
     }
 
-    /** Lance l'installeur Android (l'utilisateur confirme). */
+    /**
+     * Installe la mise à jour.
+     * Android 12+ : session PackageInstaller « sans action de l'utilisateur » → silencieuse dès que
+     * l'app s'est déjà mise à jour elle-même une fois (Android demande une confirmation la 1re fois).
+     * Versions plus anciennes : écran d'installation classique.
+     */
     fun install(ctx: Context, file: File) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !ctx.packageManager.canRequestPackageInstalls()) {
             try {
@@ -115,12 +120,68 @@ object Updater {
             pending = file
             return
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try { installWithSession(ctx, file); return } catch (_: Exception) { }
+        }
+        installWithIntent(ctx, file)
+    }
+
+    private fun installWithSession(ctx: Context, file: File) {
+        val pi = ctx.packageManager.packageInstaller
+        val params = android.content.pm.PackageInstaller.SessionParams(android.content.pm.PackageInstaller.SessionParams.MODE_FULL_INSTALL)
+        params.setAppPackageName(ctx.packageName)
+        params.setSize(file.length())
+        if (Build.VERSION.SDK_INT >= 31) params.setRequireUserAction(android.content.pm.PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED)
+        val id = pi.createSession(params)
+        pi.openSession(id).use { session ->
+            file.inputStream().use { input ->
+                session.openWrite("onyx.apk", 0, file.length()).use { out ->
+                    input.copyTo(out, 256 * 1024)
+                    session.fsync(out)
+                }
+            }
+            val intent = Intent(ctx, InstallReceiver::class.java).setAction(InstallReceiver.ACTION)
+            var flags = android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            if (Build.VERSION.SDK_INT >= 31) flags = flags or android.app.PendingIntent.FLAG_MUTABLE
+            val sender = android.app.PendingIntent.getBroadcast(ctx, id, intent, flags)
+            session.commit(sender.intentSender)
+        }
+    }
+
+    private fun installWithIntent(ctx: Context, file: File) {
         val uri = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N)
             FileProvider.getUriForFile(ctx, ctx.packageName + ".updates", file) else Uri.fromFile(file)
         val i = Intent(Intent.ACTION_VIEW)
             .setDataAndType(uri, "application/vnd.android.package-archive")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
         try { ctx.startActivity(i) } catch (_: Exception) { }
+    }
+
+    /* ---------- Vérification automatique ---------- */
+    private const val PREFS = "onyx_updater"
+    private var periodic: Runnable? = null
+
+    /** Vérifie si la dernière vérification date de plus de [minIntervalMs] (au démarrage, au retour dans l'app…). */
+    fun autoCheck(ctx: Context, assetName: String, currentCode: Int, minIntervalMs: Long, cb: (JSONObject) -> Unit) {
+        val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val last = prefs.getLong("last", 0)
+        if (System.currentTimeMillis() - last < minIntervalMs) return
+        prefs.edit().putLong("last", System.currentTimeMillis()).apply()
+        check(ctx, assetName, currentCode, false, cb)
+    }
+
+    /** Vérifie régulièrement tant que l'app est ouverte (toutes les 3 h). */
+    fun startPeriodic(ctx: Context, assetName: String, currentCode: Int, cb: (JSONObject) -> Unit) {
+        val app = ctx.applicationContext
+        periodic?.let { main.removeCallbacks(it) }
+        val r = object : Runnable {
+            override fun run() {
+                autoCheck(app, assetName, currentCode, 3 * 3600_000L, cb)
+                main.postDelayed(this, 3 * 3600_000L)
+            }
+        }
+        periodic = r
+        main.postDelayed(r, 3 * 3600_000L)
     }
 
     /** APK téléchargé en attente d'autorisation « sources inconnues ». */

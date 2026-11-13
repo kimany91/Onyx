@@ -87,6 +87,7 @@ class MainActivity : Activity() {
         setContentView(web)
         web.loadUrl(HOME)
         web.requestFocus()
+        Updater.startPeriodic(this, "onyx-tv.apk", BuildConfig.VERSION_CODE) { emit("onyx-update", it.toString()) }
     }
 
     private fun hideSystemUi() {
@@ -102,6 +103,8 @@ class MainActivity : Activity() {
         hideSystemUi()
         OnyxApp.instance.startServer()
         Updater.resumePending(this)
+        // mise à jour automatique : au démarrage et à chaque retour dans l'app (au plus 1 fois par heure)
+        Updater.autoCheck(this, "onyx-tv.apk", BuildConfig.VERSION_CODE, 3600_000L) { emit("onyx-update", it.toString()) }
         web.requestFocus()
     }
 
