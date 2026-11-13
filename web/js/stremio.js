@@ -342,6 +342,8 @@
     var name = (s.name || '').replace(/\n/g, ' ');
     var title = s.title || s.description || '';
     var all = streamText(s);
+    // image de disque (DVD/Blu-ray complet, ISO) : pas un fichier vidéo lisible tel quel
+    var disc = /\b(dvdr|dvd-?[59]|dvd-?r|iso|bdmv|video_ts|bd-?25|bd-?50|complete[ .-]?(blu-?ray|bluray|dvd)|untouched[ .-]?(dvd|blu-?ray))\b/i.test(all) && !/\.(mkv|mp4|avi|m4v|ts)\b/i.test(((s.behaviorHints || {}).filename) || '');
     var res = /2160p|\b4k\b|\buhd\b/i.test(all) ? 2160 : /1440p|\b2k\b|\bqhd\b/i.test(all) ? 1440 : /1080p|\bfhd\b/i.test(all) ? 1080
       : /720p/i.test(all) ? 720 : /576p|480p|\bsd\b|dvdrip/i.test(all) ? 480 : 0;
     var badges = [];
@@ -360,7 +362,7 @@
     var vostfr = /\bvost(fr)?\b|\bsubfrench\b/i.test(all);
     var langs = Object.keys(LANGS).filter(function (k) { return LANGS[k].re.test(all); });
     if (vostfr && !multi && !/\b(vff|vfq|truefrench|vf2?)\b/i.test(all)) langs = langs.filter(function (l) { return l !== 'fr'; });
-    return {
+    return { disc: disc, 
       name: name || 'Source', title: title, res: res, quality: res ? S.qualityLabel(res) : '', badges: badges, size: size, kind: kind,
       multi: multi, vostfr: vostfr, langs: langs, fr: multi || langs.indexOf('fr') >= 0,
       cached: /\[(RD|AD|PM|DL|TB|ED|OC|DB|EN|PK)\+\]|⚡|cached/i.test(name),
@@ -439,7 +441,7 @@
   };
   /* items: [{addon, stream, info, addonIndex, index}] → triés, meilleur en premier */
   S.rank = function (items, prefs) {
-    items.forEach(function (it) { it.score = S.score(it.info, prefs) - it.addonIndex * 0.6 - it.index * 0.08; });
+    items.forEach(function (it) { it.score = S.score(it.info, prefs) - it.addonIndex * 0.6 - it.index * 0.08 - (it.info.disc ? 1000 : 0); });
     return items.slice().sort(function (a, b) { return b.score - a.score; });
   };
   S.sortStreams = function (items, lang) {
@@ -515,6 +517,28 @@
   };
   function alive(h) { return h && h.state !== 'error' && h.state !== 'none' && ((h.seeds || 0) > 0 || (h.peers || 0) > 0 || h.metadata); }
 
+  /* Source suivante après un échec : la première (dans l'ordre) qui a des partageurs, sinon la suivante */
+  S.nextCandidate = function (ranked, from, failed) {
+    failed = failed || {};
+    var rest = [];
+    for (var i = from; i < ranked.length; i++) {
+      var x = ranked[i];
+      if (!x || x.info.disc) continue;
+      var k = torrentKey(x.stream) || x.stream.url;
+      if (k && failed[k]) continue;
+      rest.push(i);
+    }
+    if (!rest.length) return -1;
+    var hashes = rest.map(function (i) { return torrentKey(ranked[i].stream); }).filter(Boolean);
+    var hs = hashes.length ? S.health(hashes) : {};
+    for (var r = 0; r < rest.length; r++) {
+      var x2 = ranked[rest[r]], k2 = torrentKey(x2.stream);
+      if (!k2 || alive(hs[k2])) return rest[r]; // source directe ou torrent vivant
+    }
+    return rest[0];
+  };
+  S.streamKey = function (st) { return torrentKey(st) || (st && st.url) || ''; };
+
   S.pickHealthy = function (ranked, onStatus) {
     var e = S.engine();
     if (!e || typeof e.torrentProbe !== 'function') return Promise.resolve(ranked);
@@ -536,11 +560,13 @@
         var ok = hashes.filter(function (h) { return alive(hs[h]); });
         var dht = 0; hashes.forEach(function (h) { dht = Math.max(dht, (hs[h] && hs[h].dht) || 0); });
         // avancement réel : vers 2,5 s dès qu'une source répond, sinon vers la limite de 14 s
-        var frac = ok.length ? Math.min(1, el / 2500) : Math.min(1, el / 14000);
-        if (onStatus) onStatus('Vérification des sources', ok.length + '/' + hashes.length + ' sources actives' + (dht ? '' : ' · connexion au réseau') + ' · ' + Math.floor(el / 1000) + ' s', frac);
+        // aucune source vivante mais le réseau répond : les vieux torrents mettent jusqu'à ~30 s à trouver leurs partageurs
+        var limit = dht ? 30000 : 14000;
+        var frac = ok.length ? Math.min(1, el / 2500) : Math.min(1, el / limit);
+        if (onStatus) onStatus('Vérification des sources', (ok.length ? ok.length + '/' + hashes.length + ' sources actives' : 'Recherche de partageurs (' + hashes.length + ' sources)') + (dht ? '' : ' · connexion au réseau') + ' · ' + Math.floor(el / 1000) + ' s', frac);
         // favori vivant → on y va ; sinon on laisse quelques secondes aux autres
         // on laisse ~1,5 s pour comparer le nombre de pairs (plus de pairs = téléchargement plus rapide)
-        var done = (ok.length && alive(hs[hashes[0]]) && el > 1500) || (ok.length && el > 2500) || el > 14000;
+        var done = (ok.length && alive(hs[hashes[0]]) && el > 1500) || (ok.length && el > 2500) || el > limit;
         if (!done) return setTimeout(poll, 500);
         var bonus = {};
         hashes.forEach(function (h) {
@@ -552,7 +578,8 @@
           return { x: x, s: x.score + (k ? (k in bonus ? bonus[k] : -40) : 0) };
         }).sort(function (a, b) { return b.s - a.s; }).map(function (o) { return o.x; });
         // on garde les 3 meilleurs torrents vivants (secours immédiats), on libère les autres
-        var keep = out.map(function (x) { return torrentKey(x.stream); }).filter(function (k) { return k && alive(hs[k]); }).slice(0, 3);
+        // aucune vivante : on garde tout (les recherches de partageurs continuent pendant la lecture)
+        var keep = ok.length ? out.map(function (x) { return torrentKey(x.stream); }).filter(function (k) { return k && alive(hs[k]); }).slice(0, 3) : hashes;
         try { if (typeof e.torrentKeep === 'function') e.torrentKeep(JSON.stringify(keep)); } catch (x) { }
         resolve(out);
       })();
@@ -616,7 +643,17 @@
   };
 
   /* Transforme une source en URL lisible */
-  S.resolve = function (stream, serverUrl) {
+  /* Pack de saison sans numéro de fichier : on indique au moteur l'épisode à chercher (« *S01E01 ») */
+  function episodeHint(stream, ep) {
+    var hb = stream.behaviorHints || {};
+    if (!ep || !ep.season && ep.season !== 0 || !ep.episode) return hb.filename || '';
+    if (stream.fileIdx !== undefined && stream.fileIdx !== null) return hb.filename || '';
+    var f = hb.filename || '', s = Number(ep.season), e = Number(ep.episode);
+    var re = new RegExp('s0*' + s + '[ ._-]*e0*' + e + '(?!\\d)|\\b0*' + s + 'x0*' + e + '(?!\\d)', 'i');
+    if (f && re.test(f) && /\.(mkv|mp4|avi|m4v|ts|webm)$/i.test(f)) return f;
+    return '*S' + s + 'E' + e;
+  }
+  S.resolve = function (stream, serverUrl, ep) {
     if (stream.url) {
       var hints = stream.behaviorHints || {};
       var headers = (hints.proxyHeaders && hints.proxyHeaders.request) || null;
@@ -627,7 +664,7 @@
     if (stream.infoHash && S.hasTorrentEngine()) {
       var nt = S.engine();
       var hb = stream.behaviorHints || {};
-      var u = nt.torrentUrl(stream.infoHash, String(stream.fileIdx === undefined || stream.fileIdx === null ? -1 : stream.fileIdx), hb.filename || '', JSON.stringify(stream.sources || []));
+      var u = nt.torrentUrl(stream.infoHash, String(stream.fileIdx === undefined || stream.fileIdx === null ? -1 : stream.fileIdx), episodeHint(stream, ep), JSON.stringify(stream.sources || []));
       return Promise.resolve({ url: u, torrent: true });
     }
     if (stream.infoHash) {

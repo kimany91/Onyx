@@ -124,7 +124,8 @@ class PlayerActivity : Activity() {
                         })
                     }
                     // les sources sont vérifiées avant la lecture : si celle-ci reste muette, on passe vite à la suivante
-                    if (!everReady && ((peers == 0 && seeds <= 0 && secs > 20) || secs > 120 || state == "error")) {
+                    // vieux torrents : on laisse ~30 s pour trouver des partageurs avant de passer à une autre source
+                    if (!everReady && ((peers == 0 && seeds <= 0 && secs > 30) || secs > 120 || state == "error")) {
                         fail(if (peers == 0) "aucun pair pour ce torrent" else "torrent trop lent"); return
                     }
                 } else {

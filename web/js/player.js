@@ -61,7 +61,7 @@
           if (i > 0 && ranked[i].score >= ranked[0].score - 20) ranked.unshift(ranked.splice(i, 1)[0]);
         }
       }
-      var ctx = { meta: Onyx.preview(meta), fullMeta: meta, type: type, videoId: videoId, video: video || null, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt, subsP: subsP };
+      var ctx = { manual: !!opts.stream, meta: Onyx.preview(meta), fullMeta: meta, type: type, videoId: videoId, video: video || null, items: items, ranked: ranked, prefs: prefs, startAt: opts.startAt, subsP: subsP };
       // torrents : on vérifie lesquels ont vraiment des pairs avant de lancer
       loading.stage(1, 'Vérification des sources', items.length + ' fichiers trouvés', 25);
       (opts.stream ? Promise.resolve(ranked) : S.pickHealthy(ranked, function (label, detail, frac) { loading.stage(1, label, detail, 25 + frac * 15); })).then(function (r) {
@@ -91,6 +91,8 @@
   };
 
   function start(ctx, i, loading) {
+    // sources d'image disque ignorées en lecture automatique (sauf choix manuel)
+    while (ctx.ranked[i] && ctx.ranked[i].info.disc && !(ctx.ranked[i] === ctx.ranked[0] && ctx.manual)) i++;
     var cand = ctx.ranked[i];
     if (!cand) {
       if (loading) loading.close('aucune source lisible');
@@ -103,7 +105,7 @@
     if (loading) loading.stage(1, 'Préparation de la lecture', S.describe(cand.info) + (cand.addon ? '  ·  ' + cand.addon.manifest.name : ''), 42);
     var prog = Onyx.progress.get(ctx.videoId);
     var startAt = ctx.startAt !== undefined ? ctx.startAt : (prog && !prog.watched && prog.position > 20 ? prog.position : 0);
-    S.resolve(cand.stream, Onyx.settings.get('streamServer')).then(function (res) {
+    S.resolve(cand.stream, Onyx.settings.get('streamServer'), ctx.video ? { season: ctx.video.season, episode: ctx.video.episode || ctx.video.number } : null).then(function (res) {
       if (loading && loading.cancelled) return;
       if (res.external) {
         if (loading) loading.close();
@@ -219,8 +221,18 @@
       // fichier illisible : on essaie automatiquement le suivant, au même endroit
       var pos = d.position > 0 ? d.position / 1000 : ctx.startAt;
       ctx.startAt = pos;
-      Onyx.native.call('playerMessage', 'Source indisponible, essai d\'une autre…');
-      start(ctx, (ctx.tryIndex || 0) + 1, null);
+      ctx.failed = ctx.failed || {};
+      if (ctx.stream) ctx.failed[S.streamKey(ctx.stream)] = true;
+      // prochaine source : d'abord une qui a vraiment des partageurs
+      var nx = S.nextCandidate(ctx.ranked, (ctx.tryIndex || 0) + 1, ctx.failed);
+      if (nx < 0) {
+        Onyx.native.call('closePlayer', 'aucune source de cet épisode n\'a de partageurs en ce moment');
+        Onyx.toast('Aucune source n\'a de partageurs en ce moment. Choisis-en une manuellement ou réessaie plus tard.', 'error', 7000);
+        if (Onyx.sources) Onyx.sources.open(ctx.fullMeta, ctx.video);
+        return;
+      }
+      Onyx.native.call('playerMessage', 'Source sans partageurs, essai d\'une autre…');
+      start(ctx, nx, null);
       return;
     }
     if (d['switch']) { P.applyPrefs(ctx, d['switch'], d.position / 1000, !!d.inFile); return; }

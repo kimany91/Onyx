@@ -78,6 +78,8 @@ object TorrentEngine {
         @Volatile var trickleStarted = false
         /** Film en cours de lecture : jamais supprimé tant que le lecteur ne l'a pas libéré. */
         @Volatile var playing = false
+        /** Fichier demandé à la lecture (ex. « *S1E1 » pour un pack de saison), prioritaire sur celui de la sonde */
+        @Volatile var wantFile: String? = null
         /** Lecture en cours sur le serveur local (une seule à la fois par torrent). */
         @Volatile var stream: InputStream? = null
         @Volatile var streamPos = 0L
@@ -198,6 +200,12 @@ object TorrentEngine {
             e = entries[h] ?: Entry(h, fileIdx, filename, sources).also { it.mode = mode; entries[h] = it; created = true }
         }
         if (mode == STREAM) e.playing = true
+        if (!created && !filename.isNullOrEmpty() && filename != e.filename && filename != e.wantFile) {
+            // la lecture vise un fichier précis (épisode d'un pack) : on le choisit à nouveau
+            e.wantFile = filename
+            val ti = e.info
+            if (ti != null) { val idx = chooseFile(ti, fileIdx, filename); if (idx >= 0 && idx != e.fileIndex) { e.fileIndex = idx; e.prioritized.clear(); applyMode(e) } }
+        }
         if (created) start(e)
         else if (mode > e.mode) { e.mode = mode; applyMode(e) }
         if (mode >= PREWARM) e.lastUse = System.currentTimeMillis()
@@ -334,7 +342,7 @@ object TorrentEngine {
             }
             if (e.cancelled || th == null) return@Thread
             val ti = th.torrentFile() ?: throw IOException("métadonnées illisibles")
-            val idx = chooseFile(ti, e.fileHint, e.filename)
+            val idx = chooseFile(ti, e.fileHint, e.wantFile ?: e.filename)
             if (idx < 0) throw IOException("aucune vidéo dans ce torrent")
             e.info = ti; e.fileIndex = idx; e.handle = th
             applyMode(e)
@@ -360,6 +368,26 @@ object TorrentEngine {
             for (i in 0 until n) if (!fs.padFileAt(i) && fs.fileName(i).equals(filename, true)) return i
         }
         val video = Regex(".*\\.($VIDEO_EXT)$", RegexOption.IGNORE_CASE)
+        // pack de saison : l'interface indique l'épisode voulu (« *S1E1 ») → fichier dont le nom correspond
+        val ep = if (filename != null) Regex("^\\*S(\\d+)E(\\d+)$", RegexOption.IGNORE_CASE).find(filename) else null
+        if (ep != null) {
+            val s = ep.groupValues[1].toInt(); val e = ep.groupValues[2].toInt()
+            val pats = listOf(
+                Regex("s0*$s[ ._-]*e0*$e(?!\\d)", RegexOption.IGNORE_CASE),
+                Regex("(?<!\\d)0*${s}x0*$e(?!\\d)", RegexOption.IGNORE_CASE),
+                Regex("(?<![a-z\\d])(e|ep|episode)[ ._-]*0*$e(?!\\d)", RegexOption.IGNORE_CASE)
+            )
+            for (re in pats) {
+                var bi = -1; var bs = -1L
+                for (i in 0 until n) {
+                    if (fs.padFileAt(i)) continue
+                    val name = fs.filePath(i)
+                    if (!video.matches(name) || !re.containsMatchIn(name.substringAfterLast('/'))) continue
+                    if (fs.fileSize(i) > bs) { bs = fs.fileSize(i); bi = i }
+                }
+                if (bi >= 0) return bi
+            }
+        }
         if (hint in 0 until n && !fs.padFileAt(hint) && fs.fileSize(hint) > 30L * 1024 * 1024 && video.matches(fs.fileName(hint))) return hint
         var best = -1; var bestSize = -1L
         for (i in 0 until n) {

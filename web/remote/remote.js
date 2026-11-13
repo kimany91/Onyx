@@ -275,6 +275,7 @@
   }
 
   function startPhone(ctx, i, loading) {
+    while (ctx.ranked[i] && ctx.ranked[i].info.disc) i++; // images de disque : illisibles telles quelles
     var cand = ctx.ranked[i];
     if (!cand) {
       if (loading) loading.close('aucune source lisible');
@@ -286,7 +287,7 @@
     if (loading) loading.stage(1, 'Préparation de la lecture', S.describe(cand.info) + (cand.addon ? '  ·  ' + cand.addon.manifest.name : ''), 42);
     var prog = Onyx.progress.get(ctx.vid);
     var startAt = ctx.startAt !== undefined ? ctx.startAt : (prog && !prog.watched && prog.position > 20 ? prog.position : 0);
-    S.resolve(cand.stream, localStorage.getItem('onyx.phoneStreamServer') || 'http://127.0.0.1:11470').then(function (res) {
+    S.resolve(cand.stream, localStorage.getItem('onyx.phoneStreamServer') || 'http://127.0.0.1:11470', ctx.video ? { season: ctx.video.season, episode: ctx.video.episode || ctx.video.number } : null).then(function (res) {
       if (loading && loading.cancelled) return;
       if (res.external) { if (loading) loading.close(); phone.openExternal(res.external, ''); return; }
       ctx.subsP = ctx.subsP || withTimeout(S.subtitles(ctx.meta.type, ctx.vid, {}), 4000, []);
@@ -354,8 +355,17 @@
     }
     if (d.failed) {
       ctx.startAt = d.position > 0 ? d.position / 1000 : ctx.startAt;
-      phone.playerMessage('Source indisponible, essai d\'une autre…');
-      startPhone(ctx, (ctx.tryIndex || 0) + 1, null);
+      ctx.failed = ctx.failed || {};
+      if (ctx.stream) ctx.failed[S.streamKey(ctx.stream)] = true;
+      // prochaine source : d'abord une qui a vraiment des partageurs
+      var nx = S.nextCandidate(ctx.ranked, (ctx.tryIndex || 0) + 1, ctx.failed);
+      if (nx < 0) {
+        if (phone.closePlayer) phone.closePlayer('aucune source de cet épisode n\'a de partageurs en ce moment');
+        toast('Aucune source n\'a de partageurs en ce moment', 5000);
+        return;
+      }
+      phone.playerMessage('Source sans partageurs, essai d\'une autre…');
+      startPhone(ctx, nx, null);
       return;
     }
     if (d['switch']) { applyPrefs(ctx, d['switch'], d.position / 1000, !!d.inFile); return; }
