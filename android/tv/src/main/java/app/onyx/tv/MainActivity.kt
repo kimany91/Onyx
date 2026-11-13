@@ -53,6 +53,8 @@ class MainActivity : Activity() {
 
         val loader = WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", WebViewAssetLoader.AssetsPathHandler(this))
+            // sujets découpés par l'IA (effet de profondeur sur les images des films)
+            .addPathHandler("/cutouts/", WebViewAssetLoader.InternalStoragePathHandler(this, Cutout.dir(this)))
             .build()
 
         web = WebView(this)

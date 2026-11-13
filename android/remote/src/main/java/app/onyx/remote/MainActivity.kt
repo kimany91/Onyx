@@ -25,6 +25,7 @@ import app.onyx.core.Updater
 import com.google.zxing.client.android.Intents
 import com.journeyapps.barcodescanner.CaptureActivity
 import com.journeyapps.barcodescanner.ScanOptions
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -101,6 +102,55 @@ class MainActivity : Activity() {
         emit("onyx-update", o.toString())
     }
 
+    /** Réseau Wi-Fi (ou Ethernet) actuel, même s'il n'a pas Internet. */
+    private fun wifiNetwork(): android.net.Network? = try {
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) as android.net.ConnectivityManager
+        @Suppress("DEPRECATION")
+        cm.allNetworks.firstOrNull { n ->
+            val c = cm.getNetworkCapabilities(n)
+            c != null && (c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) || c.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET))
+        }
+    } catch (_: Exception) { null }
+
+    private var discovering = false
+    private fun discoverTv() {
+        if (discovering) return
+        discovering = true
+        val nsd = getSystemService(Context.NSD_SERVICE) as android.net.nsd.NsdManager
+        val wifi = applicationContext.getSystemService(Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+        val lock = try { wifi.createMulticastLock("onyx").apply { setReferenceCounted(false); acquire() } } catch (_: Exception) { null }
+        val found = JSONArray()
+        var listener: android.net.nsd.NsdManager.DiscoveryListener? = null
+        fun finish() {
+            if (!discovering) return
+            discovering = false
+            try { listener?.let { nsd.stopServiceDiscovery(it) } } catch (_: Exception) { }
+            try { lock?.release() } catch (_: Exception) { }
+            emit("onyx-found", JSONObject().put("tvs", found).toString())
+        }
+        listener = object : android.net.nsd.NsdManager.DiscoveryListener {
+            override fun onDiscoveryStarted(t: String) { }
+            override fun onDiscoveryStopped(t: String) { }
+            override fun onStartDiscoveryFailed(t: String, e: Int) { runOnUiThread { finish() } }
+            override fun onStopDiscoveryFailed(t: String, e: Int) { }
+            override fun onServiceLost(si: android.net.nsd.NsdServiceInfo) { }
+            override fun onServiceFound(si: android.net.nsd.NsdServiceInfo) {
+                @Suppress("DEPRECATION")
+                nsd.resolveService(si, object : android.net.nsd.NsdManager.ResolveListener {
+                    override fun onResolveFailed(s: android.net.nsd.NsdServiceInfo, e: Int) { }
+                    override fun onServiceResolved(s: android.net.nsd.NsdServiceInfo) {
+                        @Suppress("DEPRECATION")
+                        val host = s.host?.hostAddress ?: return
+                        if (host.contains(':')) return
+                        synchronized(found) { found.put("http://$host:${s.port}") }
+                    }
+                })
+            }
+        }
+        try { nsd.discoverServices("_onyx._tcp.", android.net.nsd.NsdManager.PROTOCOL_DNS_SD, listener) } catch (_: Exception) { finish(); return }
+        android.os.Handler(mainLooper).postDelayed({ finish() }, 5000)
+    }
+
     private fun emit(event: String, json: String) {
         runOnUiThread {
             web.evaluateJavascript("window.dispatchEvent(new CustomEvent('$event',{detail:${JSONObject.quote(json)}}))", null)
@@ -154,6 +204,12 @@ class MainActivity : Activity() {
 
         @JavascriptInterface fun forgetTv() { prefs.edit().remove("tv").apply() }
 
+        /** Mémorise l'adresse de la TV qui a répondu (elle peut différer de celle du QR code). */
+        @JavascriptInterface fun saveTv(url: String) { prefs.edit().putString("tv", url).apply() }
+
+        /** Cherche la TV sur le réseau local (annonce « _onyx._tcp ») ; réponse via l'événement « onyx-found ». */
+        @JavascriptInterface fun discover() { runOnUiThread { discoverTv() } }
+
         /**
          * Requête vers la TV faite par l'app elle-même (et non par la page web) :
          * les navigateurs récents bloquent les appels d'une page vers un appareil
@@ -163,7 +219,9 @@ class MainActivity : Activity() {
             Thread {
                 val out = JSONObject().put("id", id)
                 try {
-                    val c = java.net.URL(url).openConnection() as java.net.HttpURLConnection
+                    // toujours par le Wi-Fi : sinon Android peut passer par les données mobiles ou un VPN,
+                    // et la TV (adresse locale) devient injoignable
+                    val c = (wifiNetwork()?.openConnection(java.net.URL(url)) ?: java.net.URL(url).openConnection()) as java.net.HttpURLConnection
                     c.requestMethod = if (method == "POST") "POST" else "GET"
                     c.connectTimeout = 4000; c.readTimeout = 10000
                     c.useCaches = false
@@ -180,7 +238,7 @@ class MainActivity : Activity() {
                     out.put("status", code).put("body", text)
                     c.disconnect()
                 } catch (e: Exception) {
-                    out.put("status", 0).put("error", e.javaClass.simpleName + ": " + (e.message ?: ""))
+                    out.put("status", 0).put("error", e.javaClass.simpleName + ": " + (e.message ?: "")).put("wifi", wifiNetwork() != null)
                 }
                 emit("onyx-http", out.toString())
             }.apply { isDaemon = true; start() }

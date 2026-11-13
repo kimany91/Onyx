@@ -68,7 +68,13 @@ Accueil et navigation (TV et téléphone) :
 - **ambiance du film** : quand un film est sélectionné, l'écran prend ses couleurs et des effets de lumière
   et d'animation propres à ce film : 36 effets (toiles, hyperespace, code Matrix, reflets sous l'eau, aurores,
   portail d'étincelles, éclairs, néons, rayons de lumière, sable, lanternes, grain de vieux film…), combinés
-  pour ~1 360 films et séries connus (web/js/fx-data.js), sinon choisis selon le titre ou le genre ;
+  pour ~1 360 films et séries connus (web/js/fx-data.js) ; les grands classiques ont un **effet signature**
+  dessiné pour eux (fils de marionnette du Parrain, plume de Forrest Gump, trou noir d'Interstellar, ondes de
+  Jurassic Park, noir et blanc + manteau rouge de La Liste de Schindler, Anneau du Seigneur des anneaux…,
+  web/js/fx-signatures.js). Chaque fond reçoit aussi des lumières posées sur les zones claires de sa propre image.
+  Un film sans lien évident n'a pas d'effet inventé : seulement ses couleurs et ses lumières ;
+- **effet de profondeur (TV)** : l'IA de Google (ML Kit) découpe le sujet de l'image du film ; il flotte devant
+  le décor légèrement flouté, les deux plans dérivant à des vitesses différentes ;
 - **lancement façon console** : l'image du film s'ouvre depuis la carte en plein écran, le logo apparaît dans un
   éclat de lumière, pendant que le chargement a déjà commencé ;
 - **sons d'interface** (créés dans l'app) pour la navigation, la validation, le retour et le lancement.

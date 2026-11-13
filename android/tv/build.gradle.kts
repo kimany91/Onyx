@@ -49,4 +49,8 @@ dependencies {
     implementation(project(":core"))
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("org.nanohttpd:nanohttpd:2.3.1")
+    // Découpage du sujet de l'image du film (effet de profondeur / parallaxe) :
+    // modèle Google « sujet » (via les services Google) et, en secours, modèle « personnes » intégré à l'app
+    implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
+    implementation("com.google.mlkit:segmentation-selfie:16.0.0-beta6")
 }

@@ -62,7 +62,20 @@
             accent = [200, 205, 220];
             deep = dark[3] ? [dark[0] / dark[3] | 0, dark[1] / dark[3] | 0, dark[2] / dark[3] | 0] : [20, 20, 26];
           }
-          resolve(palCache[url] = { accent: accent, deep: deep });
+          // zones lumineuses de l'image (lampes, soleil, néons…) : de petites lumières y seront posées
+          var spots = [], lumA = [];
+          for (var q = 0; q < d.length; q += 4) lumA.push((d[q] * 0.3 + d[q + 1] * 0.59 + d[q + 2] * 0.11) / 255);
+          for (var yy = 1; yy < hgt - 1; yy++) for (var xx = 1; xx < w - 1; xx++) {
+            var li = yy * w + xx, lv = lumA[li];
+            if (lv < 0.72) continue;
+            var peak = true;
+            for (var oy = -1; oy <= 1 && peak; oy++) for (var ox = -1; ox <= 1; ox++) if ((ox || oy) && lumA[li + oy * w + ox] > lv) { peak = false; break; }
+            if (peak) spots.push([xx / w, yy / hgt, lv, [d[li * 4], d[li * 4 + 1], d[li * 4 + 2]]]);
+          }
+          spots.sort(function (a, b) { return b[2] - a[2]; });
+          var kept = [];
+          spots.forEach(function (s) { if (kept.length < 4 && kept.every(function (k) { return Math.abs(k[0] - s[0]) + Math.abs(k[1] - s[1]) > 0.18; })) kept.push([s[0], s[1], Math.min(1, (s[2] - 0.6) * 2.5), s[3]]); });
+          resolve(palCache[url] = { accent: accent, deep: deep, spots: kept });
         } catch (e) { resolve(null); }
       };
       img.onerror = function () { resolve(null); };
@@ -101,6 +114,7 @@
   function norm(s) { return String(s || '').toLowerCase().normalize ? String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, ' ').trim() : String(s || '').toLowerCase(); }
   function parseRecipe(r) {
     if (!r) return null;
+    if (r === '-' || r.indexOf('-|') === 0) return { fx: [], color: r.split('|')[1] || null }; // film sans effet : couleurs + lumières de l'image
     var parts = r.split('|');
     return { fx: parts[0].split(',').filter(function (n) { return Onyx.Fx && Onyx.Fx.has(n); }), color: parts[1] || null };
   }
@@ -113,13 +127,12 @@
       var n = norm(m.name), y = String(m.releaseInfo || m.year || '').slice(0, 4);
       r = parseRecipe(db.names[n + '|' + y] || db.names[n]);
     }
-    if (r && r.fx.length) return r;
-    var name = (m.name || '').toLowerCase(), txt = name + ' ' + (m.description || '').toLowerCase();
-    for (var i = 0; i < KEYWORDS.length; i++) if (KEYWORDS[i][1].test(name)) return { fx: KEYWORDS[i][0], color: null };
-    var gs = m.genres || m.genre || [];
-    for (var j = 0; j < gs.length; j++) if (GENRE_FX[gs[j]]) return { fx: GENRE_FX[gs[j]], color: null };
-    for (var k = 0; k < KEYWORDS.length; k++) if (KEYWORDS[k][1].test(txt)) return { fx: KEYWORDS[k][0], color: null };
-    return { fx: ['bokeh', 'rays'], color: null };
+    if (r) return r;
+    // film inconnu : un effet seulement si son titre l'évoque clairement (sinon : couleurs + lumières de son image,
+    // plutôt qu'un effet générique sans rapport avec le film)
+    var name = (m.name || '').toLowerCase();
+    for (var i = 0; i < KEYWORDS.length; i++) if (KEYWORDS[i][1].test(name)) return { fx: KEYWORDS[i][0].slice(0, 1), color: null };
+    return { fx: [], color: null };
   }
 
   /* ---------- Calques d'ambiance ---------- */
@@ -146,8 +159,10 @@
   function resize() {
     if (!canvas) return;
     // demi-résolution : léger pour la TV, invisible à l'œil (effets doux)
-    canvas.width = Math.round(window.innerWidth / 2);
-    canvas.height = Math.round(window.innerHeight / 2);
+    // pleine résolution (plafonnée au 1080p) : effets nets
+    var dpr = Math.min(window.devicePixelRatio || 1, 2), w = Math.min(1920, Math.round(window.innerWidth * dpr));
+    canvas.width = w;
+    canvas.height = Math.round(w * window.innerHeight / window.innerWidth);
   }
 
   function apply(recipe, pal) {
@@ -164,10 +179,16 @@
     next.classList.add('show'); prev.classList.remove('show');
     document.documentElement.style.setProperty('--amb', css(accent));
     document.documentElement.style.setProperty('--amb-soft', css(accent, 0.35));
+    var bd = document.getElementById('backdrop');
+    var mood = setting('ambience') ? Onyx.Fx.moodOf(recipe.fx) : null;
+    if (bd) { bd.classList.toggle('mood-mono', mood === 'mono'); }
     if (!setting('ambience') || reduce) { engine.clear(); return; }
     // couleur des effets : celle du film (recette) mêlée à celle de l'image
     var fxColor = forced ? forced.map(function (v, i) { return Math.round(v * 0.7 + accent[i] * 0.3); }) : accent;
-    engine.set(recipe.fx, fxColor);
+    var names = recipe.fx.slice(0, 3);
+    // + lumières posées sur les zones claires de l'image du film (rend chaque fond unique)
+    if (pal && pal.spots && pal.spots.length && mood !== 'mono' && names.length < 3) names.push('spots');
+    engine.set(names, fxColor, 1, { spots: pal && pal.spots });
   }
 
   var pending = null, cur = null;
@@ -176,7 +197,12 @@
     meta: function (m) {
       clearTimeout(pending);
       pending = setTimeout(function () {
-        if (!m) { cur = null; if (root) { glows.forEach(function (g) { g.classList.remove('show'); }); engine.clear(); } return; }
+        if (!m) {
+          cur = null;
+          if (root) { glows.forEach(function (g) { g.classList.remove('show'); }); engine.clear(); }
+          var bd0 = document.getElementById('backdrop'); if (bd0) bd0.classList.remove('mood-mono');
+          return;
+        }
         var key = m.id || m.name;
         if (cur === key) return;
         cur = key;

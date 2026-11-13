@@ -40,9 +40,18 @@ class RemoteServer(private val ctx: Context, port: Int) : NanoHTTPD("0.0.0.0", p
     fun info(): JSONObject {
         val ip = activeIp() ?: lanIp()
         val url = "http://$ip:$listeningPort"
+        // toutes les adresses locales de la TV : le téléphone essaie chacune si la première ne répond pas
+        val others = allIps().filter { it != ip }.take(3)
+        val alt = if (others.isEmpty()) "" else "&ips=" + others.joinToString(",")
         return JSONObject().put("ip", ip).put("port", listeningPort).put("url", url)
-            .put("token", token).put("pairUrl", "$url/remote/?token=$token")
+            .put("token", token).put("pairUrl", "$url/remote/?token=$token$alt")
     }
+
+    private fun allIps(): List<String> = try {
+        NetworkInterface.getNetworkInterfaces().toList().filter { it.isUp && !it.isLoopback }
+            .flatMap { it.inetAddresses.toList() }
+            .filter { it is Inet4Address && it.isSiteLocalAddress }.mapNotNull { it.hostAddress }.distinct()
+    } catch (_: Exception) { emptyList() }
 
     /** Adresse IPv4 du réseau réellement utilisé (Wi-Fi ou Ethernet) selon Android. */
     private fun activeIp(): String? = try {

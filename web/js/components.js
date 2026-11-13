@@ -19,11 +19,15 @@
       var img = new Image();
       // même mode de chargement que l'ambiance (couleurs du film) : une seule requête, partagée par le cache
       img.crossOrigin = 'anonymous';
+      depthOff(root);
       img.onload = function () {
         if (bd.url !== url) return;
         next.style.backgroundImage = 'url("' + url + '")';
         next.classList.add('show');
         prev.classList.remove('show');
+        // effet de profondeur : le sujet de l'image est découpé par l'IA (sur la TV) puis flotte devant le décor
+        var nat = window.OnyxNative;
+        if (nat && typeof nat.cutout === 'function' && !/dim|plain/.test(root.className)) { try { nat.cutout(url); } catch (e) { } }
       };
       img.onerror = function () {
         if (img.crossOrigin) { img.crossOrigin = null; img.removeAttribute('crossorigin'); img.src = url; }
@@ -31,6 +35,26 @@
       img.src = url;
     }
   };
+  function depthOff(root) {
+    var fg = root.querySelector('.bd-fg');
+    if (fg) fg.classList.remove('on');
+    root.classList.remove('depth');
+  }
+  window.addEventListener('onyx-cutout', function (e) {
+    var d = e.detail; try { d = JSON.parse(d); } catch (x) { }
+    var root = Onyx.$('#backdrop');
+    if (!root || !d || !d.src || d.url !== bd.url || /dim|plain/.test(root.className)) return;
+    var fg = root.querySelector('.bd-fg');
+    if (!fg) { fg = document.createElement('div'); fg.className = 'bd-fg'; root.insertBefore(fg, root.querySelector('.bd-shade')); }
+    var im = new Image();
+    im.onload = function () {
+      if (d.url !== bd.url) return;
+      fg.style.backgroundImage = 'url("' + d.src + '")';
+      fg.classList.add('on');
+      root.classList.add('depth');
+    };
+    im.src = d.src;
+  });
   Onyx.bgOf = function (meta) {
     if (!meta) return null;
     if (meta.background) return meta.background;

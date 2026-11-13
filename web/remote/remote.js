@@ -14,7 +14,11 @@
   function parseTv(url) {
     if (!url) return null;
     var m = String(url).match(/^(https?:\/\/[^\/?#]+)[^?]*\?(?:.*&)?token=([^&#]+)/);
-    return m ? { base: m[1], token: decodeURIComponent(m[2]) } : null;
+    if (!m) return null;
+    var port = (m[1].match(/:(\d+)$/) || [])[1] || '80';
+    var ips = (String(url).match(/[?&]ips=([^&#]+)/) || [])[1];
+    var alts = ips ? decodeURIComponent(ips).split(',').filter(Boolean).map(function (ip) { return 'http://' + ip + ':' + port; }) : [];
+    return { base: m[1], token: decodeURIComponent(m[2]), alts: alts };
   }
   var tv;
   if (LOCAL) {
@@ -42,7 +46,7 @@
     if (!w) return;
     delete httpWait[d.id];
     clearTimeout(w.t);
-    if (!d.status) return w.reject(new Error(d.error || 'réseau'));
+    if (!d.status) { var er = new Error(d.error || 'réseau'); er.wifi = d.wifi; return w.reject(er); }
     w.resolve({ status: d.status, ok: d.status >= 200 && d.status < 300, json: function () { try { return Promise.resolve(JSON.parse(d.body || 'null')); } catch (x) { return Promise.reject(x); } } });
   });
   function request(url, opts) {
@@ -106,8 +110,15 @@
         }
       }
       if (currentTab === 'now') renderNow();
-    }).catch(function (e) { if (e.message !== 'unauthorized') setOnline(false); });
+    }).catch(function (e) {
+      if (e.message === 'unauthorized') return;
+      setOnline(false);
+      // l'adresse de la TV a peut-être changé : on la recherche (au plus toutes les 20 s)
+      var now = Date.now();
+      if (LOCAL && now - lastLocate > 20000) { lastLocate = now; locate().then(function () { poll(); }).catch(function (er) { lastError = explain(er); }); }
+    });
   }
+  var lastLocate = 0;
   setInterval(function () { if (!document.hidden) poll(); }, 2000);
   function connectTv() {
     setOnline(false);
@@ -115,23 +126,72 @@
     if (tv) api('/api/cmd', { action: 'hello', device: device }).catch(function () { });
   }
   connectTv();
+  /* Trouve la TV : adresse du QR code, puis ses autres adresses, puis recherche sur le réseau local */
+  function tryBase(base) {
+    return request(base + '/api/state', { method: 'GET', headers: { 'X-Onyx-Token': tv.token, 'X-Onyx-Device': device } }).then(function (r) {
+      if (r.status === 401) { var e = new Error('unauthorized'); throw e; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return base;
+    });
+  }
+  function discover() {
+    if (!phone || typeof phone.discover !== 'function') return Promise.resolve([]);
+    return new Promise(function (resolve) {
+      var done = false;
+      var on = function (e) { var d = e.detail; try { d = JSON.parse(d); } catch (x) { } done = true; window.removeEventListener('onyx-found', on); resolve((d && d.tvs) || []); };
+      window.addEventListener('onyx-found', on);
+      phone.discover();
+      setTimeout(function () { if (!done) { window.removeEventListener('onyx-found', on); resolve([]); } }, 7000);
+    });
+  }
+  var locating = null;
+  function locate() {
+    if (locating) return locating;
+    var cands = [tv.base].concat(tv.alts || []), lastErr = null;
+    function chain(list) {
+      if (!list.length) return Promise.reject(lastErr || new Error('introuvable'));
+      return tryBase(list[0]).catch(function (e) { if (e.message === 'unauthorized') throw e; lastErr = e; return chain(list.slice(1)); });
+    }
+    locating = chain(cands).catch(function (e) {
+      if (e.message === 'unauthorized') throw e;
+      return discover().then(function (found) {
+        found = found.filter(function (b) { return cands.indexOf(b) < 0; });
+        if (!found.length) throw lastErr || e;
+        return chain(found);
+      });
+    }).then(function (base) {
+      if (base !== tv.base) {
+        tv.base = base;
+        if (phone && phone.saveTv) phone.saveTv(base + '/remote/?token=' + encodeURIComponent(tv.token));
+      }
+      return base;
+    });
+    locating.then(function () { locating = null; }, function () { locating = null; });
+    return locating;
+  }
+  function explain(err) {
+    var host = tv ? tv.base.replace(/^https?:\/\//, '') : '', m = (err && err.message) || '';
+    if (m === 'unauthorized') return 'Code expiré : rescanne le QR code de la TV (Connexions).';
+    if (err && err.wifi === false) return 'Active le Wi-Fi du téléphone (même réseau que la TV).';
+    if (/refused|ECONNREFUSED/i.test(m)) return 'La TV (' + host + ') refuse la connexion : ouvre Onyx sur la TV.';
+    if (/unreachable|EHOSTUNREACH|ENETUNREACH|No route/i.test(m)) return 'La TV (' + host + ') n\'est pas joignable depuis ce Wi-Fi : vérifie que les deux sont sur le même réseau (pas un réseau invité).';
+    if (/timed? ?out|ETIMEDOUT|délai/i.test(m)) return 'Pas de réponse de la TV (' + host + ') : la box isole peut-être les appareils (réseau invité, 5 GHz séparé…).';
+    return 'TV introuvable (' + host + ') : ' + m.slice(0, 90);
+  }
   window.addEventListener('onyx-tv', function (e) {
     var d = e.detail; try { d = JSON.parse(d); } catch (x) { }
     tv = parseTv(d && d.url);
     state = null;
     if (!tv) { toast('QR code non reconnu : scanne celui de la TV (Connexions)'); return; }
-    toast('Connexion à la TV…');
-    connectTv();
+    toast('Connexion à la TV…', 9000);
     if (currentTab === 'more') renderMore();
-    // on ne dit « connectée » que si la TV répond vraiment
-    api('/api/state').then(function () {
+    locate().then(function () {
+      connectTv();
       toast('TV connectée ✓');
       api('/api/cmd', { action: 'hello', device: device }).catch(function () { });
-    }).catch(function (err) {
-      if (err.message === 'unauthorized') toast('Code expiré : rescanne le QR code de la TV');
-      else toast('TV introuvable (' + tv.base.replace(/^https?:\/\//, '') + ') : même Wi-Fi ?', 6000);
-    });
+    }).catch(function (err) { setOnline(false); lastError = explain(err); toast(lastError, 9000); if (currentTab === 'more') renderMore(); });
   });
+  var lastError = '';
 
   /* ---------- Lecture (choix automatique du fichier, comme Netflix) ---------- */
   function withTimeout(p, ms, def) { return Promise.race([p, new Promise(function (r) { setTimeout(function () { r(def); }, ms); })]); }
@@ -767,7 +827,7 @@
     // TV
     box.appendChild(h('div.card-box', tv ? [
       h('h2', { text: 'TV : ' + ((state && state.tvName) || 'Onyx TV') }),
-      h('p.hint', { text: online ? 'Connectée — tu peux lancer les films sur la TV.' : 'Hors ligne : ouvre Onyx sur la TV (même Wi-Fi).' }),
+      h('p.hint', { text: online ? 'Connectée — tu peux lancer les films sur la TV.' : (lastError || 'Hors ligne : ouvre Onyx sur la TV (même Wi-Fi).') }),
       state && state.addons && state.addons.length ? h('button.btn.wide', { text: 'Copier les addons de la TV sur ce téléphone', onclick: function () {
         S.setAddons(state.addons); toast(state.addons.length + ' addons copiés'); renderMore(); renderHome();
       } }) : null,
