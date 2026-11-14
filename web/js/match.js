@@ -77,6 +77,10 @@
       }
       return true;
     }
+    // Film : pas un épisode de série, pas une collection de plusieurs films (le fichier lancé serait un autre film)
+    if (/\bs\s*\d{1,2}\s*e\s*\d{1,3}\b|\bs0?\d\b(?!\s*\d{3,4}p)|\bseason\s*\d/.test(n)) return false;
+    if (/\b(collection|pentalogy|pentalogie|trilogy|trilogie|quadrilogy|quadrilogie|hexalogy|duology|duologie|saga|anthology|integrale|boxset|box set|complete \d+ (film|movie)s?|\d+ (films|movies))\b/.test(n)) return false;
+    if (/\b(19|20)\d\d\s+(19|20)\d\d\b/.test(n) && /\b(19|20)\d\d\s*-\s*(19|20)\d\d\b/.test(raw.replace(/_/g, ' '))) return false;
     // Film : bonne année (±1) et/ou bon titre
     var compactN = n.replace(/ /g, ''), compactT = tTok.join('');
     var titleOk = compactT.length >= 2 && compactN.indexOf(compactT) >= 0;

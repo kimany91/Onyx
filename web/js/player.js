@@ -78,6 +78,8 @@
       (opts.stream ? Promise.resolve(ranked) : S.pickHealthy(ranked, function (label, detail, frac) { loading.stage(1, label, detail, 25 + frac * 15); })).then(function (r) {
         if (loading.cancelled) return;
         ctx.ranked = r;
+        var ln = !opts.stream && S.langNotice(r, prefs);
+        if (ln) Onyx.toast(ln, null, 6000);
         ctx.loader = loading;
         start(ctx, 0, loading);
       });

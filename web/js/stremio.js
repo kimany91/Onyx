@@ -362,6 +362,20 @@
     var vostfr = /\bvost(fr)?\b|\bsubfrench\b/i.test(all);
     var langs = Object.keys(LANGS).filter(function (k) { return LANGS[k].re.test(all); });
     if (vostfr && !multi && !/\b(vff|vfq|truefrench|vf2?)\b/i.test(all)) langs = langs.filter(function (l) { return l !== 'fr'; });
+    // langues audio annoncées par l'addon (ligne « 🌎/🇫🇷/🇬🇧 » de Comet) : plus fiables que le nom du fichier
+    var flagLine = (String(s.description || s.title || '').split('\n').filter(function (l) { return l.indexOf('🌎') >= 0; })[0]) || '';
+    var flags = null;
+    if (flagLine) {
+      flags = [];
+      Object.keys(LANGS).forEach(function (k) { if (LANGS[k].re.test(flagLine)) flags.push(k); });
+      if (/💃/.test(flagLine) && flags.indexOf('es') < 0) flags.push('es');
+    }
+    // « MULTi » sans précision : souvent VF + VO, mais pas toujours (vérifié avec les drapeaux quand il y en a)
+    var multiFr = multi && (!flags || !flags.length ? null : flags.indexOf('fr') >= 0);
+    if (flags && flags.length && langs.indexOf('fr') < 0 && flags.indexOf('fr') >= 0) langs.push('fr');
+    // VF de France ou du Québec
+    var vfq = /\bvfq\b/i.test(all) && !/\b(vff|vf2|vfi|truefrench)\b/i.test(all);
+    var frSure = langs.indexOf('fr') >= 0 && !(vostfr && !/\b(vff|vfq|vfi|vf2|truefrench|french)\b/i.test(all));
     // codecs annoncés (pour le lecteur PC, qui ne lit pas tout)
     var vcodec = /\b(x265|h\.?265|hevc)\b/i.test(all) ? 'hevc' : /\bav1\b/i.test(all) ? 'av1' : /\b(x264|h\.?264|avc)\b/i.test(all) ? 'h264'
       : /\bvp9\b/i.test(all) ? 'vp9' : /\b(xvid|divx)\b/i.test(all) ? 'xvid' : '';
@@ -376,7 +390,8 @@
     if (/\btrue-?hd\b/i.test(all)) acodecs.push('truehd');
     var tenbit = /\b(10-?bits?|hi10p?)\b/i.test(all);
     var avi = /\.avi\b/i.test(all);
-    return { vcodec: vcodec, acodecs: acodecs, tenbit: tenbit, avi: avi, disc: disc, 
+    var cam = /\b(cam|camrip|hdcam|ts|telesync|hdts|tc|telecine|screener|scr|tsscreener|dvdscr)\b/i.test(all);
+    return { cam: cam, multiFr: multiFr, vfq: vfq, frSure: frSure, flags: flags, vcodec: vcodec, acodecs: acodecs, tenbit: tenbit, avi: avi, disc: disc, 
       name: name || 'Source', title: title, res: res, quality: res ? S.qualityLabel(res) : '', badges: badges, size: size, kind: kind,
       multi: multi, vostfr: vostfr, langs: langs, fr: multi || langs.indexOf('fr') >= 0,
       cached: /\[(RD|AD|PM|DL|TB|ED|OC|DB|EN|PK)\+\]|⚡|cached/i.test(name),
@@ -422,8 +437,13 @@
       else if (info.langs.length === 1 && info.langs[0] === dev) sc += 0;
       else sc += 70;
     } else {
-      if (info.langs.indexOf(a) >= 0) sc += 100;
-      else if (info.multi) sc += (a === 'fr' ? 95 : 55);
+      if (a === 'fr' && info.langs.indexOf('fr') >= 0) {
+        // français annoncé clairement ; VF du Québec un peu après la VF de France (sauf appareil québécois)
+        var quebec = /^fr-ca/i.test(String(navigator.language || ''));
+        sc += info.vfq && !quebec ? 90 : 100;
+      }
+      else if (info.langs.indexOf(a) >= 0) sc += 100;
+      else if (info.multi) sc += a === 'fr' ? (info.multiFr === false ? 5 : 72) : (info.flags && info.flags.length && info.flags.indexOf(a) < 0 ? 5 : 50);
       else if (!tagged && a === 'en') sc += 75;
       else if (info.vostfr && a !== 'fr') sc += 5;
       else sc += 0;
@@ -488,22 +508,43 @@
   /* Bonus / malus selon ce que le PC sait lire (sinon : « source illisible » à répétition) */
   S.html5Fit = function (info) {
     var c = S.html5Caps(), sc = 0;
-    if (info.avi || info.vcodec === 'xvid') sc -= 220;
-    else if (info.vcodec === 'hevc') sc += c.hevc ? -5 : -220;
-    else if (info.vcodec === 'av1') sc += c.av1 ? 0 : -220;
-    else if (info.vcodec === 'h264' && info.tenbit) sc -= 220;   // H.264 10 bits : jamais lu par le navigateur
+    // malus modérés : un fichier illisible tel quel est converti par le serveur Stremio,
+    // la langue choisie (bonus de 150) passe donc toujours avant le format
+    if (info.avi || info.vcodec === 'xvid') sc -= 70;
+    else if (info.vcodec === 'hevc') sc += c.hevc ? -5 : -40;
+    else if (info.vcodec === 'av1') sc += c.av1 ? 0 : -40;
+    else if (info.vcodec === 'h264' && info.tenbit) sc -= 40;    // H.264 10 bits : jamais lu par le navigateur
     else if (info.vcodec === 'h264') sc += 15;
     var a = info.acodecs || [];
     var okAudio = a.some(function (x) { return x === 'aac' || x === 'opus' || x === 'mp3' || x === 'flac' || (x === 'eac3' && c.eac3) || (x === 'ac3' && c.ac3); });
-    if (!okAudio && a.length) sc -= 120;     // AC3 / E-AC3 / DTS / TrueHD seuls : pas de son ou erreur
+    if (!okAudio && a.length) sc -= 25;      // AC3 / E-AC3 / DTS / TrueHD seuls : conversion nécessaire
     else if (!a.length) sc -= 10;
     return sc;
   };
 
   /* items: [{addon, stream, info, addonIndex, index}] → triés, meilleur en premier */
+  /* Rang de langue (0 = la langue choisie, 1 = « MULTi » sans précision, 2 = autre langue).
+     La langue choisie passe toujours avant tout le reste (qualité, nombre de partageurs…). */
+  S.langTier = function (info, prefs) {
+    var a = (prefs && prefs.audio) || S.deviceLang();
+    if (a === 'vo') return 0;
+    if (info.langs.indexOf(a) >= 0) return 0;
+    if (info.multi && (a === 'fr' ? info.multiFr !== false : !(info.flags && info.flags.length))) return 1;
+    return 2;
+  };
+  /* Message si la langue choisie n'a aucune source qui répond */
+  S.langNotice = function (r, prefs) {
+    var a = (prefs && prefs.audio) || S.deviceLang();
+    if (!r || !r[0] || a === 'vo' || !r[0].tier) return null;
+    var got = r[0].info.langs.length ? S.langLabel(r[0].info.langs[0]).toLowerCase() : r[0].info.multi ? 'multi-langues' : 'version d\'origine';
+    return 'Aucune source en ' + S.langLabel(a).toLowerCase() + ' ne répond pour l\'instant : lecture en ' + got + '.';
+  };
   S.rank = function (items, prefs) {
-    items.forEach(function (it) { it.score = S.score(it.info, prefs) - it.addonIndex * 0.6 - it.index * 0.08 - (it.info.disc ? 1000 : 0); });
-    return items.slice().sort(function (a, b) { return b.score - a.score; });
+    items.forEach(function (it) {
+      it.tier = S.langTier(it.info, prefs);
+      it.score = S.score(it.info, prefs) - it.addonIndex * 0.6 - it.index * 0.08 - (it.info.disc ? 1000 : 0) - (it.info.cam ? 80 : 0);
+    });
+    return items.slice().sort(function (a, b) { return (a.tier - b.tier) || (b.score - a.score); });
   };
   S.sortStreams = function (items, lang) {
     return S.rank(items, { audio: lang && lang !== 'all' ? lang : S.deviceLang(), quality: 'auto' });
@@ -592,11 +633,14 @@
     if (!rest.length) return -1;
     var hashes = rest.map(function (i) { return torrentKey(ranked[i].stream); }).filter(Boolean);
     var hs = hashes.length ? S.health(hashes) : {};
-    for (var r = 0; r < rest.length; r++) {
-      var x2 = ranked[rest[r]], k2 = torrentKey(x2.stream);
-      if (!k2 || alive(hs[k2])) return rest[r]; // source directe ou torrent vivant
+    // d'abord une source de la même langue (rang le plus bas encore disponible), vivante si possible
+    var best = Math.min.apply(null, rest.map(function (i) { return ranked[i].tier || 0; }));
+    var same = rest.filter(function (i) { return (ranked[i].tier || 0) === best; });
+    for (var r = 0; r < same.length; r++) {
+      var x2 = ranked[same[r]], k2 = torrentKey(x2.stream);
+      if (!k2 || alive(hs[k2])) return same[r]; // source directe ou torrent vivant
     }
-    return rest[0];
+    return same[0];
   };
   S.streamKey = function (st) { return torrentKey(st) || (st && st.url) || ''; };
 
@@ -606,9 +650,13 @@
     // seuls les torrents classés avant la première source directe comptent
     var firstUrl = ranked.findIndex(function (x) { return x.info.kind === 'url'; });
     var seen = {}, cands = [];
+    var topTier = ranked.length ? (ranked[0].tier || 0) : 0;
     ranked.forEach(function (x, i) {
       var k = torrentKey(x.stream);
-      if (!k || seen[k] || cands.length >= 8 || (firstUrl >= 0 && i > firstUrl)) return;
+      if (!k || seen[k] || (firstUrl >= 0 && i > firstUrl)) return;
+      // jusqu'à 8 sources de la langue choisie + 2 de secours dans une autre langue
+      var top = (x.tier || 0) === topTier, nTop = cands.filter(function (c) { return (c.tier || 0) === topTier; }).length;
+      if (top ? nTop >= 8 : cands.length - nTop >= 2) return;
       seen[k] = 1; cands.push(x);
     });
     if (!cands.length) return Promise.resolve(ranked);
@@ -627,17 +675,22 @@
         if (onStatus) onStatus('Vérification des sources', (ok.length ? ok.length + '/' + hashes.length + ' sources actives' : 'Recherche de partageurs (' + hashes.length + ' sources)') + (dht ? '' : ' · connexion au réseau') + ' · ' + Math.floor(el / 1000) + ' s', frac);
         // favori vivant → on y va ; sinon on laisse quelques secondes aux autres
         // on laisse ~1,5 s pour comparer le nombre de pairs (plus de pairs = téléchargement plus rapide)
-        var done = (ok.length && alive(hs[hashes[0]]) && el > 1500) || (ok.length && el > 2500) || el > limit;
+        // une source vivante dans la langue choisie suffit ; une autre langue seulement si aucune ne répond
+        var okTop = hashes.filter(function (h, i) { return alive(hs[h]) && (cands[i].tier || 0) === topTier; });
+        var done = (okTop.length && alive(hs[hashes[0]]) && el > 1500) || (okTop.length && el > 2500) || (ok.length && el > limit * 0.6) || el > limit;
         if (!done) return setTimeout(poll, 500);
         var bonus = {};
         hashes.forEach(function (h) {
           var x = hs[h] || {};
           bonus[h] = alive(x) ? Math.min(60, Math.log((x.seeds || 0) + (x.peers || 0) + 1) / Math.LN2 * 7) : -300;
         });
+        // tri : langue d'abord, puis note + partageurs ; une langue n'est dépassée que si elle n'a aucune source vivante
+        var tierAlive = {};
+        ranked.forEach(function (x) { var k = torrentKey(x.stream); if (!k || alive(hs[k])) tierAlive[x.tier || 0] = true; });
         var out = ranked.map(function (x) {
-          var k = torrentKey(x.stream);
-          return { x: x, s: x.score + (k ? (k in bonus ? bonus[k] : -40) : 0) };
-        }).sort(function (a, b) { return b.s - a.s; }).map(function (o) { return o.x; });
+          var k = torrentKey(x.stream), t = x.tier || 0;
+          return { x: x, t: tierAlive[t] ? t : t + 10, s: x.score + (k ? (k in bonus ? bonus[k] : -40) : 0) };
+        }).sort(function (a, b) { return (a.t - b.t) || (b.s - a.s); }).map(function (o) { return o.x; });
         // on garde les 3 meilleurs torrents vivants (secours immédiats), on libère les autres
         // aucune vivante : on garde tout (les recherches de partageurs continuent pendant la lecture)
         var keep = ok.length ? out.map(function (x) { return torrentKey(x.stream); }).filter(function (k) { return k && alive(hs[k]); }).slice(0, 3) : hashes;

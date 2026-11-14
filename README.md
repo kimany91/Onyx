@@ -78,6 +78,11 @@ Accueil et navigation (TV et téléphone) :
   animé à numérotation continue « - 14 »), Onyx prend le fichier exact de l'épisode (numéro SxxEyy, dossier
   « Season 2 », ou numéro absolu) — et si l'épisode n'y est pas, il passe à une autre source au lieu de lancer
   un autre épisode ;
+- **langue choisie d'abord** : une source dans ta langue (VFF/VFQ/TRUEFRENCH/French, ou drapeau 🇫🇷 annoncé
+  par l'addon) passe toujours avant les autres, quelle que soit la qualité ou le nombre de partageurs.
+  « MULTi » sans précision vient ensuite (et est écarté si l'addon indique qu'il n'y a pas de français),
+  la VF de France passe avant la VF du Québec, les CAM/TS en dernier. Onyx attend qu'une source française
+  réponde plutôt que de lancer une version anglaise ; s'il n'y en a vraiment aucune, il le dit ;
 - **version PC** : les sources sont classées selon ce que le PC sait vraiment lire (H.264 + son AAC/Opus/FLAC
   d'abord ; HEVC/x265 seulement si la carte graphique le décode ; son AC3/DTS/TrueHD en dernier). Un fichier
   illisible est d'abord relu converti par le serveur Stremio (comme dans Stremio), puis Onyx passe au suivant ;
