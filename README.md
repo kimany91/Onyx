@@ -71,6 +71,18 @@ Accueil et navigation (TV et téléphone) :
   TheIntroDB, SkipDB et IntroDB ; pour un film absent de ces bases, Onyx repère lui-même les logos en
   analysant les 2 premières minutes (passages au noir entre les logos, sans décoder la vidéo). Le saut est
   un simple déplacement dans la vidéo déjà chargée : rien ne recharge ;
+- **ce que tu choisis est ce qui est lancé** : chaque source est vérifiée avant la lecture. Les addons
+  renvoient parfois d'autres séries au nom proche (« My Hero Academia Vigilantes », « … 7th Season S01E01 »,
+  « … Memories »), d'autres films (« Spiderman 2 » pour « Spider-Man: Brand New Day »), des remakes
+  (mauvaise année) ou de faux fichiers (.exe) : ils sont écartés. Dans un pack (saison complète, intégrale,
+  animé à numérotation continue « - 14 »), Onyx prend le fichier exact de l'épisode (numéro SxxEyy, dossier
+  « Season 2 », ou numéro absolu) — et si l'épisode n'y est pas, il passe à une autre source au lieu de lancer
+  un autre épisode ;
+- **version PC** : les sources sont classées selon ce que le PC sait vraiment lire (H.264 + son AAC/Opus/FLAC
+  d'abord ; HEVC/x265 seulement si la carte graphique le décode ; son AC3/DTS/TrueHD en dernier). Un fichier
+  illisible est d'abord relu converti par le serveur Stremio (comme dans Stremio), puis Onyx passe au suivant ;
+- **plus de boucle « source illisible »** : après 6 sources illisibles d'affilée, la lecture s'arrête et la
+  liste des sources s'ouvre ;
 - **lecture torrent sans pause** : la vidéo est servie bloc par bloc (16 ko) dès réception au lieu
   d'attendre des morceaux entiers de 4 à 16 Mo, et un morceau que libtorrent « oublie » (cas observé
   avec des sources lentes, qui bloquait le démarrage ou un saut pendant ~2 min) est relancé après 1,5 s.

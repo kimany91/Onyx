@@ -251,6 +251,11 @@
     }).then(function (items) {
       if (loading.cancelled) return;
       if (!items.length) { loading.close('aucune source trouvée'); toast('Aucune source trouvée avec tes addons'); return; }
+      // sources d'un autre titre / d'un autre épisode écartées (sauf choix manuel d'une source précise)
+      if (!opts.stream) {
+        items = S.onlyMatching(items, meta, video);
+        if (!items.length) { loading.close('aucune source de ce titre'); toast('Aucune source ne correspond exactement à ' + (video ? 'cet épisode' : 'ce film'), 5000); return; }
+      }
       var ranked = S.rank(items, prefs);
       if (opts.stream) {
         ranked = [{ stream: opts.stream, info: S.streamInfo(opts.stream) }].concat(ranked.filter(function (x) { return !S.sameStream(x.stream, opts.stream); }));
@@ -287,7 +292,7 @@
     if (loading) loading.stage(1, 'Préparation de la lecture', S.describe(cand.info) + (cand.addon ? '  ·  ' + cand.addon.manifest.name : ''), 42);
     var prog = Onyx.progress.get(ctx.vid);
     var startAt = ctx.startAt !== undefined ? ctx.startAt : (prog && !prog.watched && prog.position > 20 ? prog.position : 0);
-    S.resolve(cand.stream, localStorage.getItem('onyx.phoneStreamServer') || 'http://127.0.0.1:11470', ctx.video ? { season: ctx.video.season, episode: ctx.video.episode || ctx.video.number } : null).then(function (res) {
+    S.resolve(cand.stream, localStorage.getItem('onyx.phoneStreamServer') || 'http://127.0.0.1:11470', S.epOf(ctx.meta, ctx.video)).then(function (res) {
       if (loading && loading.cancelled) return;
       if (res.external) { if (loading) loading.close(); phone.openExternal(res.external, ''); return; }
       ctx.subsP = ctx.subsP || withTimeout(S.subtitles(ctx.meta.type, ctx.vid, {}), 4000, []);
@@ -348,7 +353,7 @@
       var ni = nvs.findIndex(function (v) { return v.id === ctx.vid; });
       if (ni >= 0 && nvs[ni + 1]) S.collect(ctx.meta.type, nvs[ni + 1].id).then(function (items) {
         if (!items.length) return;
-        S.pickHealthy(S.rank(items, ctx.prefs)).then(function (r) {
+        S.pickHealthy(S.rank(S.onlyMatching(items, ctx.meta, nvs[ni + 1]), ctx.prefs)).then(function (r) {
           if (r[0] && r[0].info.kind === 'torrent') S.prepare(r[0].stream);
         });
       });
@@ -357,6 +362,13 @@
       ctx.startAt = d.position > 0 ? d.position / 1000 : ctx.startAt;
       ctx.failed = ctx.failed || {};
       if (ctx.stream) ctx.failed[S.streamKey(ctx.stream)] = true;
+      // pas de boucle sans fin : après 6 sources illisibles d'affilée, on arrête
+      ctx.fails = (ctx.fails || 0) + 1;
+      if (ctx.fails >= 6) {
+        if (phone.closePlayer) phone.closePlayer('aucune source lisible');
+        toast('Les sources essayées ne peuvent pas être lues. Choisis-en une dans la liste.', 5000);
+        return;
+      }
       // prochaine source : d'abord une qui a vraiment des partageurs
       var nx = S.nextCandidate(ctx.ranked, (ctx.tryIndex || 0) + 1, ctx.failed);
       if (nx < 0) {
@@ -769,7 +781,7 @@
         var t = target();
         S.collect(full.type, vidOf(full, t)).then(function (items) {
           if (!items.length) return;
-          S.pickHealthy(S.rank(items, S.prefs.forShow(full.id))).then(function (r) {
+          S.pickHealthy(S.rank(S.onlyMatching(items, full, t), S.prefs.forShow(full.id))).then(function (r) {
             if (r[0] && r[0].info.kind === 'torrent') S.prepare(r[0].stream);
           });
         });

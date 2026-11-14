@@ -49,6 +49,17 @@
         if (Onyx.sources) Onyx.sources.open(meta, video);
         return;
       }
+      // sources d'un autre titre / d'un autre épisode écartées (sauf choix manuel d'une source précise)
+      if (!opts.stream) {
+        var fitting = S.onlyMatching(items, meta, video);
+        if (!fitting.length) {
+          loading.close('aucune source de ce titre');
+          Onyx.toast('Aucune source ne correspond exactement à ' + (video ? 'cet épisode' : 'ce film') + '. Choisis-en une dans la liste.', 'error', 6000);
+          if (Onyx.sources) Onyx.sources.open(meta, video);
+          return;
+        }
+        items = fitting;
+      }
       var ranked = S.rank(items, prefs);
       if (opts.stream) {
         ranked = [{ stream: opts.stream, info: S.streamInfo(opts.stream), addon: null }]
@@ -79,7 +90,7 @@
     var vid = videoIdOf(meta, video);
     S.collect(meta.type, vid).then(function (items) {
       if (!items.length) return;
-      S.pickHealthy(S.rank(items, S.prefs.forShow(meta.id))).then(function (r) {
+      S.pickHealthy(S.rank(S.onlyMatching(items, meta, video), S.prefs.forShow(meta.id))).then(function (r) {
         if (r[0] && r[0].info.kind === 'torrent') S.prepare(r[0].stream);
       });
     });
@@ -94,6 +105,7 @@
     // sources d'image disque ignorées en lecture automatique (sauf choix manuel)
     while (ctx.ranked[i] && ctx.ranked[i].info.disc && !(ctx.ranked[i] === ctx.ranked[0] && ctx.manual)) i++;
     var cand = ctx.ranked[i];
+    ctx.hlsTried = false; // nouvelle source : la conversion (PC) pourra être retentée
     if (!cand) {
       if (loading) loading.close('aucune source lisible');
       if (P.nativeActive) Onyx.native.call('closePlayer', 'aucune source lisible');
@@ -105,7 +117,7 @@
     if (loading) loading.stage(1, 'Préparation de la lecture', S.describe(cand.info) + (cand.addon ? '  ·  ' + cand.addon.manifest.name : ''), 42);
     var prog = Onyx.progress.get(ctx.videoId);
     var startAt = ctx.startAt !== undefined ? ctx.startAt : (prog && !prog.watched && prog.position > 20 ? prog.position : 0);
-    S.resolve(cand.stream, Onyx.settings.get('streamServer'), ctx.video ? { season: ctx.video.season, episode: ctx.video.episode || ctx.video.number } : null).then(function (res) {
+    S.resolve(cand.stream, Onyx.settings.get('streamServer'), S.epOf(ctx.fullMeta || ctx.meta, ctx.video)).then(function (res) {
       if (loading && loading.cancelled) return;
       if (res.external) {
         if (loading) loading.close();
@@ -223,6 +235,7 @@
       ctx.startAt = pos;
       ctx.failed = ctx.failed || {};
       if (ctx.stream) ctx.failed[S.streamKey(ctx.stream)] = true;
+      if (giveUp(ctx, 'Les sources essayées ne peuvent pas être lues (' + (d.error || 'erreur') + ').')) { Onyx.native.call('closePlayer', 'aucune source lisible'); return; }
       // prochaine source : d'abord une qui a vraiment des partageurs
       var nx = S.nextCandidate(ctx.ranked, (ctx.tryIndex || 0) + 1, ctx.failed);
       if (nx < 0) {
@@ -244,6 +257,30 @@
       pushState();
     }
   });
+
+  /* hls.js chargé seulement si besoin (PC, flux converti) */
+  var hlsWait = null;
+  function loadHls(cb) {
+    if (window.Hls) return cb(true);
+    if (hlsWait) { hlsWait.push(cb); return; }
+    hlsWait = [cb];
+    var sc = document.createElement('script');
+    sc.src = 'vendor/hls.min.js';
+    sc.onload = function () { var w = hlsWait; hlsWait = null; w.forEach(function (f) { f(true); }); };
+    sc.onerror = function () { var w = hlsWait; hlsWait = null; w.forEach(function (f) { f(false); }); };
+    document.head.appendChild(sc);
+  }
+
+  /* Pas de boucle sans fin : après 6 sources illisibles d'affilée, on arrête et on montre la liste */
+  var MAX_AUTO_TRIES = 6;
+  function giveUp(ctx, why) {
+    if (!ctx) return true;
+    ctx.fails = (ctx.fails || 0) + 1;
+    if (ctx.fails < MAX_AUTO_TRIES) return false;
+    Onyx.toast(why + ' Choisis une source dans la liste.', 'error', 7000);
+    if (Onyx.sources) Onyx.sources.open(ctx.fullMeta || ctx.meta, ctx.video);
+    return true;
+  }
 
   function afterEnded(ctx) {
     if (!ctx || !Onyx.settings.get('autoNext')) return;
@@ -411,7 +448,19 @@
     if (ctx.prefs.subs !== 'off') { var si = subs.findIndex(function (x) { return x.lang === ctx.prefs.subs; }); if (si >= 0) loadSub(si); }
     ccBtn.addEventListener('click', function () { loadSub(subIdx + 1 >= subs.length ? -1 : subIdx + 1); });
 
-    video.src = url;
+    // flux HLS (conversion par le serveur Stremio) : lu avec hls.js, le navigateur ne lit pas le HLS seul
+    var hls = null;
+    if (/\.m3u8(\?|$)/.test(url) && !video.canPlayType('application/vnd.apple.mpegurl')) {
+      loadHls(function (ok) {
+        if (P.video !== video) return;
+        if (!ok || !window.Hls || !window.Hls.isSupported()) { onFail(4); return; }
+        hls = new window.Hls({ maxBufferLength: 60, backBufferLength: 30 });
+        P.hls = hls;
+        hls.on(window.Hls.Events.ERROR, function (ev, d) { if (d && d.fatal) onFail(4); });
+        hls.loadSource(url);
+        hls.attachMedia(video);
+      });
+    } else video.src = url;
     video.addEventListener('loadedmetadata', function () {
       if (startAt && startAt < video.duration - 10) video.currentTime = startAt;
       tDur.textContent = Onyx.fmtTime(video.duration);
@@ -449,15 +498,33 @@
     video.addEventListener('canplay', function () { spinner.classList.remove('show'); });
     video.addEventListener('pause', function () { playBtn.innerHTML = Onyx.icons.play; showControls(true); pushState(); });
     video.addEventListener('ended', function () { saveProgress(true); var c = P.ctx; closeHtml5(); afterEnded(c); });
-    video.addEventListener('error', function () {
+    video.addEventListener('error', function () { if (!hls) onFail(video.error && video.error.code); });
+    function onFail(code) {
+      if (P.video !== video) return;
       // fichier illisible ici : on passe automatiquement au suivant, au même endroit
       var c = P.ctx, pos = video.currentTime || startAt;
+      // format que le PC ne lit pas (HEVC, AC3, DTS…) : même source convertie par le serveur Stremio
+      // (comme le fait Stremio), avant de passer à une autre
+      var srv = String(Onyx.settings.get('streamServer') || 'http://127.0.0.1:11470').replace(/\/+$/, '');
+      if ((code === 3 || code === 4) && c && !c.hlsTried && !/\/hlsv2\//.test(url) && (url.indexOf(srv) === 0 || /^https?:/.test(url))) {
+        c.hlsTried = true;
+        var hurl = srv + '/hlsv2/' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8) + '/master.m3u8?mediaURL=' + encodeURIComponent(url) +
+          '&videoCodecs=h264&audioCodecs=aac&audioCodecs=mp3&audioCodecs=opus&maxAudioChannels=2';
+        if (c.loader && !started) c.loader.stage(2, 'Conversion', 'Format non lisible directement : conversion par le serveur…', 50);
+        else Onyx.toast('Conversion du format pour ce PC…');
+        if (started) c.loader = null;
+        closeHtml5(true);
+        openHtml5(hurl, title, sub, subs, pos, c);
+        return;
+      }
+      if ((code === 3 || code === 4) && c && c.ranked && c.ranked[c.tryIndex || 0]) S.html5Failed(c.ranked[c.tryIndex || 0].info);
+      if (giveUp(c, 'Les sources essayées ne peuvent pas être lues sur ce PC.')) { closeHtml5(true); if (c.loader) c.loader.close('aucune source lisible'); return; }
       if (c && c.loader && !started) c.loader.stage(2, 'Source suivante', 'Ce fichier ne peut pas être lu ici, essai d\'une autre source…', 48);
       closeHtml5(true);
       Onyx.toast('Source illisible, essai d\'une autre…');
       c.startAt = pos;
       start(c, (c.tryIndex || 0) + 1, started ? null : c.loader);
-    });
+    }
     spinner.classList.add('show');
 
     playBtn.addEventListener('click', togglePause);
@@ -533,6 +600,7 @@
     saveProgress(false);
     if (P.ctx && !silent) S.account.pushProgress(Onyx.progress.get(P.ctx.videoId));
     clearInterval(P.progressTimer);
+    if (P.hls) { try { P.hls.destroy(); } catch (e) { } P.hls = null; }
     try { P.video.pause(); P.video.removeAttribute('src'); P.video.load(); } catch (e) { }
     P.el.remove();
     P.el = null; P.video = null; P.active = false; P.skipShown = null;

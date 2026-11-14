@@ -362,7 +362,21 @@
     var vostfr = /\bvost(fr)?\b|\bsubfrench\b/i.test(all);
     var langs = Object.keys(LANGS).filter(function (k) { return LANGS[k].re.test(all); });
     if (vostfr && !multi && !/\b(vff|vfq|truefrench|vf2?)\b/i.test(all)) langs = langs.filter(function (l) { return l !== 'fr'; });
-    return { disc: disc, 
+    // codecs annoncés (pour le lecteur PC, qui ne lit pas tout)
+    var vcodec = /\b(x265|h\.?265|hevc)\b/i.test(all) ? 'hevc' : /\bav1\b/i.test(all) ? 'av1' : /\b(x264|h\.?264|avc)\b/i.test(all) ? 'h264'
+      : /\bvp9\b/i.test(all) ? 'vp9' : /\b(xvid|divx)\b/i.test(all) ? 'xvid' : '';
+    var acodecs = [];
+    if (/\baac\b/i.test(all)) acodecs.push('aac');
+    if (/\bopus\b/i.test(all)) acodecs.push('opus');
+    if (/\bmp3\b/i.test(all)) acodecs.push('mp3');
+    if (/\bflac\b/i.test(all)) acodecs.push('flac');
+    if (/\b(ddp|dd\+|e-?ac-?3|eac3|ddpa?\s?\d|dolby digital plus)\b/i.test(all)) acodecs.push('eac3');
+    if (/\b(ac-?3|dd\s?5|dd2\.0|dolby digital)(?!\s*plus)\b/i.test(all)) acodecs.push('ac3');
+    if (/\bdts(-?hd|-?x|-?ma)?\b/i.test(all)) acodecs.push('dts');
+    if (/\btrue-?hd\b/i.test(all)) acodecs.push('truehd');
+    var tenbit = /\b(10-?bits?|hi10p?)\b/i.test(all);
+    var avi = /\.avi\b/i.test(all);
+    return { vcodec: vcodec, acodecs: acodecs, tenbit: tenbit, avi: avi, disc: disc, 
       name: name || 'Source', title: title, res: res, quality: res ? S.qualityLabel(res) : '', badges: badges, size: size, kind: kind,
       multi: multi, vostfr: vostfr, langs: langs, fr: multi || langs.indexOf('fr') >= 0,
       cached: /\[(RD|AD|PM|DL|TB|ED|OC|DB|EN|PK)\+\]|⚡|cached/i.test(name),
@@ -437,8 +451,55 @@
     }
     else sc -= 200;
     if (info.badges.indexOf('DV') >= 0 && info.badges.indexOf('HDR') < 0) sc -= 8;
+    if (S.html5Player()) sc += S.html5Fit(info);
     return sc;
   };
+  /* ---------- Lecteur PC (navigateur / Windows) : ce qu'il sait vraiment lire ---------- */
+  var caps = null;
+  S.html5Player = function () {
+    // même règle que player.js : TV Android et téléphone → lecteur natif (ExoPlayer), sinon lecteur HTML5
+    if (window.OnyxPhone) return false;
+    return !(Onyx.native && Onyx.native.isAndroid && Onyx.native.isAndroid());
+  };
+  S.html5Caps = function () {
+    if (caps) return caps;
+    var v = document.createElement('video');
+    function can(t) { try { return !!(v.canPlayType(t) || (window.MediaSource && MediaSource.isTypeSupported(t))); } catch (e) { return false; } }
+    var bad = {};
+    try { bad = JSON.parse(localStorage.getItem('onyx.html5Bad') || '{}'); } catch (e) { }
+    caps = {
+      hevc: can('video/mp4; codecs="hvc1.1.6.L120.90"') && !bad.hevc,
+      av1: can('video/mp4; codecs="av01.0.08M.08"') && !bad.av1,
+      ac3: can('audio/mp4; codecs="ac-3"'), eac3: can('audio/mp4; codecs="ec-3"')
+    };
+    return caps;
+  };
+  /* Un fichier HEVC/AV1 a échoué alors que le PC le disait lisible : on s'en souviendra */
+  S.html5Failed = function (info) {
+    if (!info || (info.vcodec !== 'hevc' && info.vcodec !== 'av1')) return;
+    var bad = {};
+    try { bad = JSON.parse(localStorage.getItem('onyx.html5Bad') || '{}'); } catch (e) { }
+    bad.fails = bad.fails || {};
+    bad.fails[info.vcodec] = (bad.fails[info.vcodec] || 0) + 1;
+    if (bad.fails[info.vcodec] >= 2) bad[info.vcodec] = true;
+    try { localStorage.setItem('onyx.html5Bad', JSON.stringify(bad)); } catch (e) { }
+    caps = null;
+  };
+  /* Bonus / malus selon ce que le PC sait lire (sinon : « source illisible » à répétition) */
+  S.html5Fit = function (info) {
+    var c = S.html5Caps(), sc = 0;
+    if (info.avi || info.vcodec === 'xvid') sc -= 220;
+    else if (info.vcodec === 'hevc') sc += c.hevc ? -5 : -220;
+    else if (info.vcodec === 'av1') sc += c.av1 ? 0 : -220;
+    else if (info.vcodec === 'h264' && info.tenbit) sc -= 220;   // H.264 10 bits : jamais lu par le navigateur
+    else if (info.vcodec === 'h264') sc += 15;
+    var a = info.acodecs || [];
+    var okAudio = a.some(function (x) { return x === 'aac' || x === 'opus' || x === 'mp3' || x === 'flac' || (x === 'eac3' && c.eac3) || (x === 'ac3' && c.ac3); });
+    if (!okAudio && a.length) sc -= 120;     // AC3 / E-AC3 / DTS / TrueHD seuls : pas de son ou erreur
+    else if (!a.length) sc -= 10;
+    return sc;
+  };
+
   /* items: [{addon, stream, info, addonIndex, index}] → triés, meilleur en premier */
   S.rank = function (items, prefs) {
     items.forEach(function (it) { it.score = S.score(it.info, prefs) - it.addonIndex * 0.6 - it.index * 0.08 - (it.info.disc ? 1000 : 0); });
@@ -651,8 +712,20 @@
     var f = hb.filename || '', s = Number(ep.season), e = Number(ep.episode);
     var re = new RegExp('s0*' + s + '[ ._-]*e0*' + e + '(?!\\d)|\\b0*' + s + 'x0*' + e + '(?!\\d)', 'i');
     if (f && re.test(f) && /\.(mkv|mp4|avi|m4v|ts|webm)$/i.test(f)) return f;
-    return '*S' + s + 'E' + e;
+    return '*S' + s + 'E' + e + (ep.abs && ep.abs !== e ? 'A' + ep.abs : '');
   }
+  /* Épisode demandé pour un lecteur : saison, numéro et numéro absolu (packs à numérotation continue) */
+  S.epOf = function (meta, video) {
+    if (!video || video.season === undefined || video.season === null) return null;
+    var s = Number(video.season), e = Number(video.episode || video.number);
+    if (!e) return null;
+    return { season: s, episode: e, abs: Onyx.match ? Onyx.match.absEpisode(meta, s, e) : e };
+  };
+  /* Sources qui correspondent vraiment au titre / à l'épisode choisi (voir match.js) */
+  S.onlyMatching = function (items, meta, video) {
+    if (!Onyx.match || !meta) return items;
+    return items.filter(function (it) { return Onyx.match.fits(it.stream, meta, video); });
+  };
   S.resolve = function (stream, serverUrl, ep) {
     if (stream.url) {
       var hints = stream.behaviorHints || {};
@@ -678,6 +751,13 @@
         body: { torrent: { infoHash: ih }, peerSearch: { sources: sources.length ? sources : ['dht:' + ih], min: 40, max: 200 }, guessFileIdx: {} },
         timeout: 20000
       }).then(function (r) {
+        if (ep && Onyx.match) {
+          // épisode d'une série : le bon fichier ou rien (sinon un autre épisode serait lancé)
+          var files = ((r && r.files) || []).map(function (f) { return { path: f.path || f.name || '', size: f.length || 0 }; });
+          var ei = Onyx.match.episodeFile(files, Number(ep.season), Number(ep.episode), ep.abs);
+          if (ei < 0) throw new Error('épisode introuvable dans ce torrent');
+          return { url: srv + '/' + ih + '/' + ei, torrent: true };
+        }
         var idx = r && r.guessedFileIdx;
         if (idx === undefined || idx === null) {
           var best = -1, size = -1;
@@ -686,7 +766,8 @@
         }
         if (idx < 0) throw new Error('Fichier introuvable dans le torrent');
         return { url: srv + '/' + ih + '/' + idx, torrent: true };
-      }).catch(function () {
+      }).catch(function (err) {
+        if (err && /introuvable/.test(err.message)) throw err;
         throw new Error('Source torrent : le serveur de streaming Stremio est injoignable (' + srv + ')');
       });
     }

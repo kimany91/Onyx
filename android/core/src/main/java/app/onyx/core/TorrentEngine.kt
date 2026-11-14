@@ -81,6 +81,8 @@ object TorrentEngine {
         @Volatile var playing = false
         /** Fichier demandé à la lecture (ex. « *S1E1 » pour un pack de saison), prioritaire sur celui de la sonde */
         @Volatile var wantFile: String? = null
+        /** L'épisode demandé n'est pas dans ce torrent : on refuse de lire un autre fichier. */
+        @Volatile var missing = false
         /** Lecture en cours sur le serveur local (une seule à la fois par torrent). */
         @Volatile var stream: InputStream? = null
         @Volatile var streamPos = 0L
@@ -234,7 +236,11 @@ object TorrentEngine {
             // la lecture vise un fichier précis (épisode d'un pack) : on le choisit à nouveau
             e.wantFile = filename
             val ti = e.info
-            if (ti != null) { val idx = chooseFile(ti, fileIdx, filename); if (idx >= 0 && idx != e.fileIndex) { e.fileIndex = idx; e.prioritized.clear(); applyMode(e) } }
+            if (ti != null) {
+                val idx = chooseFile(ti, fileIdx, filename)
+                e.missing = idx < 0
+                if (idx >= 0 && idx != e.fileIndex) { e.fileIndex = idx; e.prioritized.clear(); applyMode(e) }
+            }
         }
         if (created) start(e)
         else if (mode > e.mode) { e.mode = mode; applyMode(e) }
@@ -373,7 +379,7 @@ object TorrentEngine {
             if (e.cancelled || th == null) return@Thread
             val ti = th.torrentFile() ?: throw IOException("métadonnées illisibles")
             val idx = chooseFile(ti, e.fileHint, e.wantFile ?: e.filename)
-            if (idx < 0) throw IOException("aucune vidéo dans ce torrent")
+            if (idx < 0) throw IOException(if ((e.wantFile ?: e.filename ?: "").startsWith("*")) "épisode introuvable dans ce torrent" else "aucune vidéo dans ce torrent")
             e.info = ti; e.fileIndex = idx; e.handle = th
             applyMode(e)
             // peu de pairs après quelques secondes → nouvelle recherche
@@ -398,25 +404,14 @@ object TorrentEngine {
             for (i in 0 until n) if (!fs.padFileAt(i) && fs.fileName(i).equals(filename, true)) return i
         }
         val video = Regex(".*\\.($VIDEO_EXT)$", RegexOption.IGNORE_CASE)
-        // pack de saison : l'interface indique l'épisode voulu (« *S1E1 ») → fichier dont le nom correspond
-        val ep = if (filename != null) Regex("^\\*S(\\d+)E(\\d+)$", RegexOption.IGNORE_CASE).find(filename) else null
+        // épisode demandé (« *S1E1 » ou « *S2E1A14 », A = numéro absolu) : le bon fichier ou rien.
+        // Jamais « le plus gros fichier » d'un pack : ce serait un autre épisode.
+        val ep = if (filename != null) Regex("^\\*S(\\d+)E(\\d+)(?:A(\\d+))?$", RegexOption.IGNORE_CASE).find(filename) else null
         if (ep != null) {
             val s = ep.groupValues[1].toInt(); val e = ep.groupValues[2].toInt()
-            val pats = listOf(
-                Regex("s0*$s[ ._-]*e0*$e(?!\\d)", RegexOption.IGNORE_CASE),
-                Regex("(?<!\\d)0*${s}x0*$e(?!\\d)", RegexOption.IGNORE_CASE),
-                Regex("(?<![a-z\\d])(e|ep|episode)[ ._-]*0*$e(?!\\d)", RegexOption.IGNORE_CASE)
-            )
-            for (re in pats) {
-                var bi = -1; var bs = -1L
-                for (i in 0 until n) {
-                    if (fs.padFileAt(i)) continue
-                    val name = fs.filePath(i)
-                    if (!video.matches(name) || !re.containsMatchIn(name.substringAfterLast('/'))) continue
-                    if (fs.fileSize(i) > bs) { bs = fs.fileSize(i); bi = i }
-                }
-                if (bi >= 0) return bi
-            }
+            val abs = ep.groupValues[3].toIntOrNull() ?: e
+            val files = (0 until n).map { i -> if (fs.padFileAt(i)) "" to 0L else fs.filePath(i).replace('\\', '/') to fs.fileSize(i) }
+            return EpisodeMatch.episodeFile(files, s, e, abs)
         }
         if (hint in 0 until n && !fs.padFileAt(hint) && fs.fileSize(hint) > 30L * 1024 * 1024 && video.matches(fs.fileName(hint))) return hint
         var best = -1; var bestSize = -1L
@@ -518,6 +513,7 @@ object TorrentEngine {
             e.lastUse = System.currentTimeMillis()
             if (!e.ready.await(120, TimeUnit.SECONDS) || e.error != null || e.info == null)
                 return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.error ?: "délai dépassé")
+            if (e.missing) return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "épisode introuvable dans ce torrent")
             val ti = e.info!!
             val fs = ti.files()
             val size = fs.fileSize(e.fileIndex)
