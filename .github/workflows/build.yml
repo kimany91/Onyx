@@ -14,7 +14,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TAG: v1.0.${{ github.run_number }}
+  TAG: v1.1.${{ github.run_number }}
   GH_TOKEN: ${{ github.token }}
   GH_REPO: ${{ github.repository }}
 
@@ -87,7 +87,7 @@ jobs:
         run: npm ci
       - name: Version
         working-directory: desktop
-        run: npm version 1.0.${{ github.run_number }} --no-git-tag-version --allow-same-version
+        run: npm version 1.1.${{ github.run_number }} --no-git-tag-version --allow-same-version
       - name: Empaquetage
         working-directory: desktop
         env:

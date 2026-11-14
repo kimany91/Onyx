@@ -1,7 +1,7 @@
 {
   "name": "onyx",
   "productName": "Onyx",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Onyx — client Stremio style Netflix (version Windows)",
   "main": "main.js",
   "author": "Onyx",

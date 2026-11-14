@@ -7,4 +7,4 @@ plugins {
 // Numéro de version : fourni par la CI (-PonyxVersionCode=N), sinon 1
 val onyxVersionCode: Int = (findProperty("onyxVersionCode") as String?)?.toIntOrNull() ?: 1
 extra["onyxVersionCode"] = onyxVersionCode
-extra["onyxVersionName"] = "1.0.$onyxVersionCode"
+extra["onyxVersionName"] = "1.1.$onyxVersionCode"
