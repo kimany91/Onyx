@@ -98,7 +98,7 @@ class MainActivity : Activity() {
     }
 
     private fun onUpdate(o: JSONObject) {
-        if (o.optString("status") == "available") Toast.makeText(this, "Mise à jour " + o.optString("version") + " en cours de téléchargement…", Toast.LENGTH_LONG).show()
+        if (o.optString("status") == "available") Toast.makeText(this, "Mise à jour d'Onyx en cours de téléchargement…", Toast.LENGTH_LONG).show()
         emit("onyx-update", o.toString())
     }
 

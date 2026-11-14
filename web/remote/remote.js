@@ -959,7 +959,7 @@
       h('p.hint', { text: 'Pour les sources torrent, l\'app Stremio doit être ouverte sur ce téléphone (ou indique l\'adresse d\'un serveur Stremio du réseau).' }),
       h('form.inline', { onsubmit: function (e) { e.preventDefault(); localStorage.setItem('onyx.phoneStreamServer', srv.value.trim().replace(/\/+$/, '')); toast('Enregistré'); } }, [srv, h('button.btn', { type: 'submit', text: 'OK' })])
     ]));
-    box.appendChild(h('p.hint.center', { text: 'Onyx ' + ((phone && phone.version && phone.version()) || '') }));
+    box.appendChild(h('p.hint.center', { text: 'Onyx ' + Onyx.shortVersion((phone && phone.version && phone.version()) || '') }));
   }
 
   /* ---------- Démarrage ---------- */

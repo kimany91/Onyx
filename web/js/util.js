@@ -72,6 +72,11 @@
     return h ? h + ':' + p(m) + ':' + p(s) : m + ':' + p(s);
   };
 
+  /* Version affichée : « 1.1 » (le numéro de compilation reste interne) */
+  Onyx.shortVersion = function (v) {
+    var m = /^v?(\d+)\.(\d+)/.exec(String(v || ''));
+    return m ? m[1] + '.' + m[2] : String(v || '');
+  };
   Onyx.toast = function (msg, type, ms) {
     var box = document.getElementById('toasts');
     if (!box) return;

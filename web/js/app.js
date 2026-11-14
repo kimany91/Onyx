@@ -215,7 +215,7 @@
   /* ---------- Mises à jour ---------- */
   Onyx.bus.on('update', function (u) {
     if (!u) return;
-    if (u.status === 'available') { app.updateStatus = 'v' + u.version + ' disponible'; Onyx.toast('Mise à jour ' + u.version + ' en cours de téléchargement…'); }
+    if (u.status === 'available') { app.updateStatus = 'mise à jour disponible'; Onyx.toast('Mise à jour d\'Onyx en cours de téléchargement…'); }
     else if (u.status === 'downloading') app.updateStatus = 'téléchargement ' + (u.progress || 0) + ' %';
     else if (u.status === 'ready') { app.updateStatus = 'prête à installer'; Onyx.toast('Mise à jour prête : installation…', 'ok'); }
     else if (u.status === 'none') { app.updateStatus = 'à jour'; if (u.manual) Onyx.toast('Onyx est à jour', 'ok'); }

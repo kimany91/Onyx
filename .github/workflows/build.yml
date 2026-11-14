@@ -27,7 +27,7 @@ jobs:
     steps:
       - name: Création du brouillon de Release
         run: |
-          gh release create "$TAG" --draft --target "${{ github.sha }}" --title "Onyx ${TAG#v}" --notes "**Onyx ${TAG#v}**
+          gh release create "$TAG" --draft --target "${{ github.sha }}" --title "Onyx 1.1" --notes "**Onyx 1.1**
 
           | Fichier | Pour |
           |---|---|

@@ -122,7 +122,7 @@
         });
       }, { icon: 'tv' });
       var upd = Onyx.app.updateStatus;
-      row('Mises à jour', 'Version ' + Onyx.native.version() + (upd ? '  ·  ' + upd : ''), function () {
+      row('Mises à jour', 'Version ' + Onyx.shortVersion(Onyx.native.version()) + (upd ? '  ·  ' + upd : ''), function () {
         if (!Onyx.native.available) { Onyx.toast('Mises à jour gérées par l\'app TV / Windows'); return; }
         Onyx.toast('Recherche de mises à jour…');
         Onyx.native.checkUpdate(true);
@@ -139,7 +139,7 @@
       }, { icon: 'power' });
       if (plat === 'android-tv' || plat === 'desktop') row('Quitter Onyx', null, function () { Onyx.native.exit(); }, { icon: 'close' });
 
-      list.appendChild(h('div.about', { html: Onyx.gemSvg('gem-about') + Onyx.wordmark() + '<p>Onyx ' + Onyx.esc(Onyx.native.version()) + ' — client Stremio pour TV.<br>Onyx n\'héberge aucun contenu : tout provient des addons que tu installes.</p>' }));
+      list.appendChild(h('div.about', { html: Onyx.gemSvg('gem-about') + Onyx.wordmark() + '<p>Onyx ' + Onyx.esc(Onyx.shortVersion(Onyx.native.version())) + ' — client Stremio pour TV.<br>Onyx n\'héberge aucun contenu : tout provient des addons que tu installes.</p>' }));
 
       if (keep) {
         var again = Onyx.$$('.set-row', list).filter(function (b) { return b.dataset.key === keep; })[0];
